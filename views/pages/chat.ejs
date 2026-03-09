@@ -1,0 +1,133 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <main class="chat-layout">
+    <section class="panel sidebar-panel">
+      <div class="sidebar-top">
+        <div class="sidebar-head">
+          <p class="eyebrow">Secure Channel</p>
+          <h4>Chat Space</h4>
+        </div>
+
+        <div class="profile-mini">
+          <span class="dot"></span>
+          <div>
+            <strong id="currentUser"><%= currentUser.username %></strong>
+            <p class="mini-status">online</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="online-wrap">
+        <h2>Online Users</h2>
+        <input id="usersSearch" type="text" placeholder="Search users..." />
+        <ul id="usersList"></ul>
+      </div>
+
+      <form action="/logout" method="post">
+        <button type="submit" class="btn-ghost">Logout</button>
+      </form>
+    </section>
+
+    <section class="panel chat-panel">
+      <div class="chat-head">
+        <div class="chat-head-left">
+          <div id="selectedUserAvatar" class="selected-user-avatar"></div>
+          <h4 id="chatTitle"></h4>
+        </div>
+        <div class="chat-head-right">
+          <button type="button" class="call-icon-btn" title="Voice call"><i class="fa-solid fa-phone"></i></button>
+          <button type="button" class="call-icon-btn" title="Video call"><i class="fa-solid fa-video"></i></button>
+        </div>
+      </div>
+
+      <ul id="messages"></ul>
+
+      <form id="messageForm" class="composer">
+        <div class="input-shell">
+          <label for="fileInput" class="file-picker-inside" title="Attach file"><i class="fa-solid fa-paperclip" aria-hidden="true"></i></label>
+          <button id="voiceToggle" type="button" class="voice-picker-inside" title="Record voice"><i class="fa-solid fa-microphone"></i></button>
+          <button id="locationToggle" type="button" class="location-picker-inside" title="Send location"><i class="fa-solid fa-location-dot"></i></button>
+          <button id="emojiToggle" type="button" class="emoji-picker-inside" title="Add emoji"><i class="fa-regular fa-face-smile"></i></button>
+          <input id="fileInput" type="file" class="hidden-file-input" />
+          <input id="message" type="text" placeholder="Write a message..." required />
+          <emoji-picker id="emojiPicker" class="emoji-panel hidden"></emoji-picker>
+        </div>
+        <button type="submit" aria-label="Send message"><i class="fa-solid fa-paper-plane"></i></button>
+      </form>
+    </section>
+  </main>
+
+  <div id="deleteModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <h3>Delete Message?</h3>
+      <p>Choose how you want to delete this message.</p>
+      <div class="modal-actions">
+        <button id="deleteEveryoneBtn" type="button" class="modal-btn danger">Delete for everyone</button>
+        <button id="deleteMeBtn" type="button" class="modal-btn">Delete for me</button>
+        <button id="cancelDeleteBtn" type="button" class="modal-btn neutral">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="filePreviewModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <h3>File Preview</h3>
+      <div class="file-preview-box">
+        <img id="previewImage" class="preview-image hidden" alt="Preview" />
+        <p id="previewFileName" class="preview-name"></p>
+        <p id="previewFileMeta" class="preview-meta"></p>
+      </div>
+      <div class="modal-actions">
+        <button id="previewSendBtn" type="button" class="modal-btn">Send File</button>
+        <button id="previewCancelBtn" type="button" class="modal-btn neutral">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="locationModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <h3>Share Location</h3>
+      <p>Choose location type to share.</p>
+      <div class="modal-actions">
+        <button id="sendCurrentLocationBtn" type="button" class="modal-btn">Current Location</button>
+        <button id="toggleLiveLocationBtn" type="button" class="modal-btn">Start Live Location</button>
+        <button id="cancelLocationBtn" type="button" class="modal-btn neutral">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="voiceModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <h3>Voice Recorder</h3>
+      <p id="voiceStatusText">Press Start to record voice message.</p>
+      <div class="modal-actions">
+        <button id="startVoiceBtn" type="button" class="modal-btn">Start Recording</button>
+        <button id="stopVoiceBtn" type="button" class="modal-btn neutral" disabled>Stop Recording</button>
+        <button id="sendVoiceBtn" type="button" class="modal-btn" disabled>Send Voice</button>
+        <button id="cancelVoiceBtn" type="button" class="modal-btn neutral">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
+  <script>
+    window.APP_USER = {
+      id: <%= currentUser.id %>,
+      username: '<%= currentUser.username %>'
+    };
+  </script>
+  <script src="/js/chat.js"></script>
+</body>
+</html>

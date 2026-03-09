@@ -1,0 +1,29 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <main class="auth-container">
+    <section class="card auth-box">
+      <h1>Create Account</h1>
+      <p>Signup karke chat use karo.</p>
+
+      <% if (error) { %>
+        <p class="error"><%= error %></p>
+      <% } %>
+
+      <form action="/signup" method="post">
+        <input name="username" type="text" placeholder="Username" required />
+        <input name="password" type="password" placeholder="Password (min 6 chars)" required />
+        <button type="submit">Signup</button>
+      </form>
+
+      <p>Already account? <a href="/login">Login</a></p>
+    </section>
+  </main>
+</body>
+</html>
