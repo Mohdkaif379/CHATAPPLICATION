@@ -1,4 +1,4 @@
-﻿const socket = io();
+const socket = io();
 
 const messageForm = document.getElementById('messageForm');
 const statusText = document.getElementById('statusText');
@@ -34,14 +34,39 @@ const stopVoiceBtn = document.getElementById('stopVoiceBtn');
 const sendVoiceBtn = document.getElementById('sendVoiceBtn');
 const cancelVoiceBtn = document.getElementById('cancelVoiceBtn');
 
+const createGroupModal = document.getElementById('createGroupModal');
+const groupNameInput = document.getElementById('groupNameInput');
+const groupMembersList = document.getElementById('groupMembersList');
+const submitCreateGroupBtn = document.getElementById('submitCreateGroupBtn');
+const cancelCreateGroupBtn = document.getElementById('cancelCreateGroupBtn');
+const groupsList = document.getElementById('groupsList');
+const chatHeaderInfo = document.getElementById('chatHeaderInfo');
+const groupInfoModal = document.getElementById('groupInfoModal');
+
+const infoGroupName = document.getElementById('infoGroupName');
+const infoGroupMembersList = document.getElementById('infoGroupMembersList');
+const exitGroupBtn = document.getElementById('exitGroupBtn');
+const addMemberBtn = document.getElementById('addMemberBtn');
+const addMemberModal = document.getElementById('addMemberModal');
+const addMemberUsersList = document.getElementById('addMemberUsersList');
+const cancelAddMemberBtn = document.getElementById('cancelAddMemberBtn');
+const closeInfoBtn = document.getElementById('closeInfoBtn');
+const adminControls = document.getElementById('adminControls');
+const adminOnlyMsgCheck = document.getElementById('adminOnlyMsgCheck');
+
+
+
 const myUserId = Number(window.APP_USER.id || 0);
 const myUsername = String(window.APP_USER.username || '').toLowerCase();
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
 let selectedUser = '';
+let selectedGroup = null;
 let selectedUserAvatarUrl = '';
 let pendingDelete = null;
 let cachedUsers = [];
+let cachedGroups = [];
+
 let pendingFile = null;
 let pendingPreviewUrl = '';
 const pendingUploadTempIds = [];
@@ -94,6 +119,101 @@ function initEmojiPicker() {
     if (!clickedInside) {
       emojiPicker.classList.add('hidden');
     }
+  });
+}
+
+function initProfileDropdown() {
+  const profileToggle = document.getElementById('profileToggle');
+  const profileDropdown = document.getElementById('profileDropdown');
+  const openSettingsBtn = document.getElementById('openSettingsBtn');
+  const createGroupBtn = document.getElementById('createGroupBtn');
+
+  if (!profileToggle || !profileDropdown) return;
+
+  profileToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    profileDropdown.classList.toggle('hidden');
+    profileToggle.classList.toggle('active');
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!profileToggle.contains(e.target)) {
+      profileDropdown.classList.add('hidden');
+      profileToggle.classList.remove('active');
+    }
+  });
+
+  if (openSettingsBtn) {
+    openSettingsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      profileDropdown.classList.add('hidden');
+      profileToggle.classList.remove('active');
+      alert('Settings clicked');
+    });
+  }
+
+  if (createGroupBtn) {
+    createGroupBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      profileDropdown.classList.add('hidden');
+      profileToggle.classList.remove('active');
+      openCreateGroupModal();
+    });
+  }
+
+
+  const dropdownLogoutBtn = document.getElementById('dropdownLogoutBtn');
+  const logoutForm = document.getElementById('logoutForm');
+  if (dropdownLogoutBtn && logoutForm) {
+    dropdownLogoutBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      logoutForm.submit();
+    });
+  }
+}
+function openCreateGroupModal() {
+  groupMembersList.innerHTML = '';
+  cachedUsers.forEach(user => {
+    if (Number(user.id) === myUserId) return;
+    if (String(user.username || '').toLowerCase().startsWith('debuguser')) return;
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <input type="checkbox" id="user-${user.id}" value="${user.id}">
+      <label for="user-${user.id}">${escapeHtml(user.username)}</label>
+    `;
+    groupMembersList.appendChild(li);
+  });
+  createGroupModal.classList.remove('hidden');
+}
+
+
+function closeCreateGroupModal() {
+  createGroupModal.classList.add('hidden');
+  groupNameInput.value = '';
+}
+
+if (cancelCreateGroupBtn) {
+  cancelCreateGroupBtn.addEventListener('click', closeCreateGroupModal);
+}
+
+if (submitCreateGroupBtn) {
+  submitCreateGroupBtn.addEventListener('click', () => {
+    const name = groupNameInput.value.trim();
+    const selectedCheckboxes = groupMembersList.querySelectorAll('input[type="checkbox"]:checked');
+    const memberIds = Array.from(selectedCheckboxes).map(cb => Number(cb.value));
+
+    if (!name) {
+      alert('Please enter a group name.');
+      return;
+    }
+
+    if (memberIds.length === 0) {
+      alert('Please select at least one member.');
+      return;
+    }
+
+    socket.emit('group:create', { name, memberIds });
+    closeCreateGroupModal();
   });
 }
 
@@ -192,8 +312,8 @@ function stopVoiceRecording() {
 }
 
 async function sendVoiceMessage() {
-  if (!selectedUser) {
-    setStatus('Status: Select a user first, then send voice.');
+  if (!selectedUser && !selectedGroup) {
+    setStatus('Status: Select a chat first, then send voice.');
     return;
   }
 
@@ -213,16 +333,29 @@ async function sendVoiceMessage() {
     });
 
     pendingUploadTempIds.push(tempId);
-    socket.emit('chat:private', {
-      to: selectedUser,
-      messageType: 'audio',
-      file: {
-        fileUrl: uploaded.fileUrl,
-        fileName: uploaded.fileName || fileName,
-        fileSize: uploaded.fileSize || file.size,
-        fileMime: uploaded.fileMime || file.type
-      }
-    });
+    if (selectedGroup) {
+        socket.emit('group:message', {
+            groupId: selectedGroup.id,
+            messageType: 'audio',
+            file: {
+              fileUrl: uploaded.fileUrl,
+              fileName: uploaded.fileName || fileName,
+              fileSize: uploaded.fileSize || file.size,
+              fileMime: uploaded.fileMime || file.type
+            }
+        });
+    } else {
+        socket.emit('chat:private', {
+          to: selectedUser,
+          messageType: 'audio',
+          file: {
+            fileUrl: uploaded.fileUrl,
+            fileName: uploaded.fileName || fileName,
+            fileSize: uploaded.fileSize || file.size,
+            fileMime: uploaded.fileMime || file.type
+          }
+        });
+    }
     setStatus('Status: Voice sent');
   } catch (error) {
     removeUploadingMessage(tempId);
@@ -230,21 +363,30 @@ async function sendVoiceMessage() {
   }
 }
 
+
 function sendLocationMessage(position, mode) {
   const lat = Number(position.coords.latitude);
   const lng = Number(position.coords.longitude);
   const url = `https://www.google.com/maps?q=${lat},${lng}`;
 
-  socket.emit('chat:private', {
-    to: selectedUser,
-    messageType: 'location',
-    location: { lat, lng, url, mode }
-  });
+  if (selectedGroup) {
+      socket.emit('group:message', {
+          groupId: selectedGroup.id,
+          messageType: 'location',
+          location: { lat, lng, url, mode }
+      });
+  } else {
+      socket.emit('chat:private', {
+        to: selectedUser,
+        messageType: 'location',
+        location: { lat, lng, url, mode }
+      });
+  }
 }
 
 function sendCurrentLocation() {
-  if (!selectedUser) {
-    setStatus('Status: Select a user first, then share location.');
+  if (!selectedUser && !selectedGroup) {
+    setStatus('Status: Select a chat first, then share location.');
     return;
   }
 
@@ -267,10 +409,11 @@ function sendCurrentLocation() {
 }
 
 function startLiveLocation() {
-  if (!selectedUser) {
-    setStatus('Status: Select a user first, then share location.');
+  if (!selectedUser && !selectedGroup) {
+    setStatus('Status: Select a chat first, then share location.');
     return;
   }
+
 
   if (!navigator.geolocation) {
     setStatus('Status: Geolocation is not supported on this device.');
@@ -324,45 +467,96 @@ function toDisplayName(name) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function setSelectedUserDisplay(username, avatarUrl = '') {
-  const displayName = username ? toDisplayName(username) : '';
-  if (chatTitle) chatTitle.textContent = displayName || 'Select a user';
+function setSelectedChatDisplay(name, isGroup = false, avatarUrl = '') {
+  const displayName = name ? toDisplayName(name) : '';
+  if (chatTitle) chatTitle.textContent = displayName || 'Select a chat';
   selectedUserAvatarUrl = avatarUrl || '';
 
-  if (!username) {
+  if (chatHeaderInfo) {
+    if (isGroup) chatHeaderInfo.classList.add('interactive');
+    else chatHeaderInfo.classList.remove('interactive');
+  }
+
+  // Check group membership and Admin-Only Messaging setting for UI lockdown
+  const isMember = isGroup ? cachedGroups.some(g => g.id === selectedGroup.id) : true;
+  const isAdminOnly = isGroup && selectedGroup.admins_only_messages;
+  const groupInCache = isGroup ? cachedGroups.find(g => g.id === selectedGroup.id) : null;
+  const isAdmin = isGroup && groupInCache && groupInCache.is_admin;
+
+  if (messageInput) {
+      if (!isMember) {
+          messageInput.disabled = true;
+          messageInput.placeholder = "You are no longer a member of this group.";
+      } else if (isAdminOnly && !isAdmin) {
+          messageInput.disabled = true;
+          messageInput.placeholder = "Only admin can send messages.";
+      } else {
+          messageInput.disabled = false;
+          messageInput.placeholder = "Write a message...";
+      }
+  }
+
+  // Update media buttons
+  const mediaButtons = [locationToggle, voiceToggle, emojiToggle, fileInput];
+  mediaButtons.forEach(btn => {
+      if (btn) {
+          if (!isMember || (isAdminOnly && !isAdmin)) {
+              btn.style.pointerEvents = 'none';
+              btn.style.opacity = '0.5';
+              if (btn.tagName === 'INPUT') btn.disabled = true;
+          } else {
+              btn.style.pointerEvents = 'auto';
+              btn.style.opacity = '1';
+              if (btn.tagName === 'INPUT') btn.disabled = false;
+          }
+      }
+  });
+
+  if (!name) {
     selectedUserAvatar.innerHTML = '?';
+    return;
+  }
+
+  if (isGroup) {
+    selectedUserAvatar.innerHTML = `<div class="group-icon"><i class="fa-solid fa-user-group"></i></div>`;
     return;
   }
 
   if (selectedUserAvatarUrl) {
     selectedUserAvatar.innerHTML = `<img src="${escapeHtml(selectedUserAvatarUrl)}" alt="${escapeHtml(
-      username
+      name
     )}" />`;
     return;
   }
 
-  selectedUserAvatar.textContent = username.charAt(0).toUpperCase();
+  selectedUserAvatar.textContent = name.charAt(0).toUpperCase();
 }
 
 messageForm.addEventListener('submit', (e) => {
   e.preventDefault();
 
-  const to = selectedUser;
   const text = messageInput.value.trim();
 
-  if (!to) {
-    setStatus('Status: Select a user from online list first.');
+  if (!selectedUser && !selectedGroup) {
+    setStatus('Status: Select a user or group from sidebar first.');
     return;
   }
 
   if (!text) return;
 
-  socket.emit('chat:private', { to, text, messageType: 'text' });
+  if (selectedGroup) {
+      socket.emit('group:message', { groupId: selectedGroup.id, text, messageType: 'text' });
+  } else {
+      socket.emit('chat:private', { to: selectedUser, text, messageType: 'text' });
+  }
+  
   messageInput.value = '';
   if (emojiPicker) emojiPicker.classList.add('hidden');
 });
 
+
 initEmojiPicker();
+initProfileDropdown();
 
 if (locationToggle) {
   locationToggle.addEventListener('click', (event) => {
@@ -374,8 +568,8 @@ if (locationToggle) {
 if (voiceToggle) {
   voiceToggle.addEventListener('click', (event) => {
     event.preventDefault();
-    if (!selectedUser) {
-      setStatus('Status: Select a user first, then record voice.');
+    if (!selectedUser && !selectedGroup) {
+      setStatus('Status: Select a chat first, then record voice.');
       return;
     }
     openVoiceModal();
@@ -440,8 +634,8 @@ fileInput.addEventListener('change', () => {
   const file = fileInput.files && fileInput.files[0];
   if (!file) return;
 
-  if (!selectedUser) {
-    setStatus('Status: Select a user first, then choose file.');
+  if (!selectedUser && !selectedGroup) {
+    setStatus('Status: Select a chat first, then choose file.');
     fileInput.value = '';
     return;
   }
@@ -457,8 +651,8 @@ fileInput.addEventListener('change', () => {
 
 previewSendBtn.addEventListener('click', async () => {
   if (!pendingFile) return;
-  if (!selectedUser) {
-    setStatus('Status: Select a user first, then send file.');
+  if (!selectedUser && !selectedGroup) {
+    setStatus('Status: Select a chat first, then send file.');
     closeFilePreview();
     return;
   }
@@ -473,16 +667,29 @@ previewSendBtn.addEventListener('click', async () => {
     });
 
     pendingUploadTempIds.push(tempId);
-    socket.emit('chat:private', {
-      to: selectedUser,
-      messageType: 'file',
-      file: {
-        fileUrl: uploaded.fileUrl,
-        fileName: uploaded.fileName,
-        fileSize: uploaded.fileSize,
-        fileMime: uploaded.fileMime
-      }
-    });
+    if (selectedGroup) {
+        socket.emit('group:message', {
+          groupId: selectedGroup.id,
+          messageType: 'file',
+          file: {
+            fileUrl: uploaded.fileUrl,
+            fileName: uploaded.fileName || fileToSend.name,
+            fileSize: uploaded.fileSize || fileToSend.size,
+            fileMime: uploaded.fileMime || fileToSend.type
+          }
+        });
+    } else {
+        socket.emit('chat:private', {
+          to: selectedUser,
+          messageType: 'file',
+          file: {
+            fileUrl: uploaded.fileUrl,
+            fileName: uploaded.fileName || fileToSend.name,
+            fileSize: uploaded.fileSize || fileToSend.size,
+            fileMime: uploaded.fileMime || fileToSend.type
+          }
+        });
+    }
 
     setStatus('Status: File sent');
   } catch (error) {
@@ -534,8 +741,10 @@ function renderUsers(users) {
     li.style.cursor = 'pointer';
     li.addEventListener('click', () => {
       selectedUser = user.username;
-      setSelectedUserDisplay(selectedUser, user.avatarUrl || user.profileImage || '');
+      selectedGroup = null;
+      setSelectedChatDisplay(selectedUser, false, user.avatarUrl || user.profileImage || '');
       Array.from(usersList.children).forEach((item) => item.classList.remove('active'));
+      if (groupsList) Array.from(groupsList.children).forEach((item) => item.classList.remove('active'));
       li.classList.add('active');
       socket.emit('chat:history', { withUser: selectedUser });
       socket.emit('chat:seen', { withUser: selectedUser });
@@ -545,10 +754,52 @@ function renderUsers(users) {
   });
 }
 
-socket.on('users:update', ({ users }) => {
+function renderGroups(groups) {
+  if (!groupsList) return;
+  groupsList.innerHTML = '';
+  groups.forEach((group) => {
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <div class="group-icon"><i class="fa-solid fa-user-group"></i></div>
+      <span class="user-name">${escapeHtml(group.name)}</span>
+    `;
+    if (selectedGroup && selectedGroup.id === group.id) {
+      li.classList.add('active');
+    }
+    li.addEventListener('click', () => {
+      selectedUser = '';
+      selectedGroup = group;
+      setSelectedChatDisplay(group.name, true);
+      Array.from(usersList.children).forEach((item) => item.classList.remove('active'));
+      Array.from(groupsList.children).forEach((item) => item.classList.remove('active'));
+      li.classList.add('active');
+      socket.emit('group:history', { groupId: group.id });
+    });
+    groupsList.appendChild(li);
+  });
+}
+
+
+socket.on('users:update', ({ users, groups }) => {
   cachedUsers = Array.isArray(users) ? users : [];
   renderUsers(cachedUsers);
+  if (groups) {
+      cachedGroups = Array.isArray(groups) ? groups : [];
+      renderGroups(cachedGroups);
+      
+      if (selectedGroup) {
+          const groupStillExists = cachedGroups.some(g => g.id === selectedGroup.id);
+          if (!groupStillExists) {
+              selectedGroup = null;
+              setSelectedChatDisplay('', false);
+              messages.innerHTML = '';
+          } else {
+              setSelectedChatDisplay(selectedGroup.name, true);
+          }
+      }
+  }
 });
+
 
 if (usersSearch) {
   usersSearch.addEventListener('input', () => renderUsers(cachedUsers));
@@ -576,6 +827,18 @@ socket.on('chat:private', (message) => {
   }
 });
 
+socket.on('group:message', (message) => {
+    if (!selectedGroup || selectedGroup.id !== message.groupId) return;
+
+    if ((message.messageType === 'file' || message.messageType === 'audio') && Number(message.fromId) === myUserId && pendingUploadTempIds.length) {
+        const tempId = pendingUploadTempIds.shift();
+        removeUploadingMessage(tempId);
+    }
+
+    appendMessage(message);
+});
+
+
 socket.on('chat:history', ({ messages: history }) => {
   messages.innerHTML = '';
   history.forEach(appendMessage);
@@ -583,6 +846,12 @@ socket.on('chat:history', ({ messages: history }) => {
     socket.emit('chat:seen', { withUser: selectedUser });
   }
 });
+
+socket.on('group:history', ({ messages: history }) => {
+    messages.innerHTML = '';
+    history.forEach(appendMessage);
+});
+
 
 socket.on('chat:error', ({ message }) => {
   setStatus(`Status: ${message}`);
@@ -598,6 +867,18 @@ socket.on('chat:deleted', ({ messageId, scope }) => {
     row.remove();
   }
 });
+
+socket.on('group:deleted', ({ messageId, scope }) => {
+    const row = messages.querySelector(`li[data-message-id="${messageId}"]`);
+    if (!row) return;
+
+    if (scope === 'everyone') {
+        markMessageAsDeleted(row);
+    } else {
+        row.remove();
+    }
+});
+
 
 socket.on('chat:read', ({ messageIds }) => {
   if (!Array.isArray(messageIds) || !messageIds.length) return;
@@ -625,13 +906,20 @@ messages.addEventListener('click', (event) => {
   const messageId = Number(deleteBtn.dataset.messageId);
   if (!messageId) return;
 
+
   const row = deleteBtn.closest('li');
+
   const isDeletedMarker = row && row.dataset.deleted === 'true';
 
   if (isDeletedMarker) {
-    socket.emit('chat:delete', { messageId, scope: 'me' });
+    if (selectedGroup) {
+        socket.emit('group:delete', { messageId, scope: 'me' });
+    } else {
+        socket.emit('chat:delete', { messageId, scope: 'me' });
+    }
     return;
   }
+
 
   const isOwnMessage = deleteBtn.dataset.isOwn === 'true';
   openDeleteModal({ messageId, isOwnMessage });
@@ -650,16 +938,20 @@ function appendMessage(message) {
   if (message.isDeleted) {
     markMessageAsDeleted(li);
   } else {
-    const tickMarkup = isOwnMessage
+    const tickMarkup = (isOwnMessage && !selectedGroup)
       ? `<span class="msg-tick${message.readAt ? ' read' : ''}">${message.readAt ? '✓✓' : '✓'}</span>`
+      : '';
+
+    const senderMarkup = (selectedGroup && !isOwnMessage)
+      ? `<div class="msg-sender">${escapeHtml(message.from)}</div>`
       : '';
 
     const bodyMarkup = message.messageType === 'file'
       ? `<a class="file-link" href="${escapeHtml(message.fileUrl)}" target="_blank" rel="noopener noreferrer" download="${escapeHtml(message.fileName || 'file')}">📎 ${escapeHtml(message.fileName || 'File')}</a><div class="file-meta">${escapeHtml(formatBytes(message.fileSize))}</div>`
       : message.messageType === 'audio'
         ? `<audio class="voice-player" controls src="${escapeHtml(message.fileUrl || '')}"></audio><div class="file-meta">🎤 Voice message</div>`
-      : message.messageType === 'location'
-        ? `<a class="file-link" href="${escapeHtml(
+        : message.messageType === 'location'
+          ? `<a class="file-link" href="${escapeHtml(
             message.locationUrl || message.text
           )}" target="_blank" rel="noopener noreferrer">📍 ${escapeHtml(
             message.locationMode === 'live' ? 'Live location' : 'Current location'
@@ -668,13 +960,22 @@ function appendMessage(message) {
               ? `${message.locationLat.toFixed(5)}, ${message.locationLng.toFixed(5)}`
               : ''
           )}</div>`
-      : `<div class="msg-text">${escapeHtml(message.text)}</div>`;
+          : `<div class="msg-text">${escapeHtml(message.text)}</div>`;
 
     li.innerHTML =
-      `${bodyMarkup}` +
-      `<div class="msg-meta"><span class="msg-time">${time}</span>${tickMarkup}` +
-      `<button type="button" class="delete-btn" data-message-id="${message.id}" data-is-own="${isOwnMessage}" aria-label="Message options">..</button></div>`;
+      (message.messageType === 'system')
+      ? `<div class="msg-system">${escapeHtml(message.text)}</div>`
+      : `${senderMarkup}${bodyMarkup}` +
+        `<div class="msg-meta"><span class="msg-time">${time}</span>${tickMarkup}` +
+        `<button type="button" class="delete-btn" data-message-id="${message.id}" data-is-own="${isOwnMessage}" aria-label="Message options">..</button></div>`;
+    
+    if (message.messageType === 'system') {
+        li.className = 'msg-system-wrap';
+    }
   }
+
+
+
 
   messages.appendChild(li);
   messages.scrollTop = messages.scrollHeight;
@@ -799,19 +1100,171 @@ function closeDeleteModal() {
 
 deleteEveryoneBtn.addEventListener('click', () => {
   if (!pendingDelete) return;
-  socket.emit('chat:delete', { messageId: pendingDelete.messageId, scope: 'everyone' });
+  if (selectedGroup) {
+      socket.emit('group:delete', { messageId: pendingDelete.messageId, scope: 'everyone' });
+  } else {
+      socket.emit('chat:delete', { messageId: pendingDelete.messageId, scope: 'everyone' });
+  }
   closeDeleteModal();
 });
 
 deleteMeBtn.addEventListener('click', () => {
   if (!pendingDelete) return;
-  socket.emit('chat:delete', { messageId: pendingDelete.messageId, scope: 'me' });
+  if (selectedGroup) {
+      socket.emit('group:delete', { messageId: pendingDelete.messageId, scope: 'me' });
+  } else {
+      socket.emit('chat:delete', { messageId: pendingDelete.messageId, scope: 'me' });
+  }
   closeDeleteModal();
 });
 
+
 cancelDeleteBtn.addEventListener('click', closeDeleteModal);
 
+function openGroupInfoModal() {
+  if (!selectedGroup) return;
+  infoGroupName.textContent = selectedGroup.name;
+  infoGroupMembersList.innerHTML = '<li class="muted">Loading members...</li>';
+  
+  socket.emit('group:members:get', { groupId: selectedGroup.id });
+  
+  // Only show exit button if user is still a member
+  const isMember = cachedGroups.some(g => g.id === selectedGroup.id);
+  if (exitGroupBtn) {
+      if (isMember) exitGroupBtn.classList.remove('hidden');
+      else exitGroupBtn.classList.add('hidden');
+  }
+
+  // Show admin controls if current user is an admin
+  if (adminControls) {
+      const groupInCache = cachedGroups.find(g => g.id === selectedGroup.id);
+      if (groupInCache && groupInCache.is_admin) {
+          adminControls.classList.remove('hidden');
+          if (adminOnlyMsgCheck) {
+              adminOnlyMsgCheck.checked = !!selectedGroup.admins_only_messages;
+          }
+      } else {
+          adminControls.classList.add('hidden');
+      }
+  }
+
+  createGroupModal.classList.add('hidden');
+  groupInfoModal.classList.remove('hidden');
+  
+  // Update avatar icon if available
+  const infoGroupAvatar = document.getElementById('infoGroupAvatar');
+  if (infoGroupAvatar) {
+      infoGroupAvatar.innerHTML = `<i class="fa-solid fa-user-group"></i>`;
+  }
+}
+
+socket.on('group:members:list', ({ members }) => {
+    infoGroupMembersList.innerHTML = '';
+    // Store current members for filtering later
+    if (selectedGroup) {
+        selectedGroup.members = members;
+    }
+    const groupInCache = cachedGroups.find(g => g.id === selectedGroup.id);
+    const isAdmin = groupInCache && groupInCache.is_admin;
+
+    members.forEach(member => {
+        if (String(member.username || '').toLowerCase().startsWith('debuguser')) return;
+        const li = document.createElement('li');
+        li.className = 'member-item';
+        
+        let actionButtonsHtml = '<div class="member-actions">';
+        if (isAdmin && Number(member.id) !== myUserId) {
+            if (!member.is_admin) {
+                actionButtonsHtml += `<button type="button" class="promote-member-btn" data-user-id="${member.id}" title="Make Admin"><i class="fa-solid fa-user-shield"></i></button>`;
+            }
+            actionButtonsHtml += `<button type="button" class="remove-member-btn" data-user-id="${member.id}" title="Remove Member"><i class="fa-solid fa-user-minus"></i></button>`;
+        } else if (member.is_admin) {
+            actionButtonsHtml += `<span class="admin-badge">Admin</span>`;
+        }
+        actionButtonsHtml += '</div>';
+
+        li.innerHTML = `
+            <span class="user-name">${escapeHtml(member.username)}</span>
+            ${actionButtonsHtml}
+        `;
+        infoGroupMembersList.appendChild(li);
+    });
+});
+
+function closeGroupInfoModal() {
+  groupInfoModal.classList.add('hidden');
+}
+
+function openAddMemberModal() {
+  if (!selectedGroup) return;
+  addMemberUsersList.innerHTML = '';
+  
+  const currentMemberIds = (selectedGroup.members || []).map(m => Number(m.id));
+  
+  cachedUsers.forEach(user => {
+    if (Number(user.id) === myUserId) return;
+    if (String(user.username || '').toLowerCase().startsWith('debuguser')) return;
+    if (currentMemberIds.includes(Number(user.id))) return;
+    
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <span class="user-name">${escapeHtml(user.username)}</span>
+      <button type="button" class="modal-btn small-btn add-this-user" data-user-id="${user.id}">Add</button>
+    `;
+    li.style.display = 'flex';
+    li.style.justifyContent = 'space-between';
+    li.style.alignItems = 'center';
+    
+    const addBtn = li.querySelector('.add-this-user');
+    addBtn.onclick = () => {
+        socket.emit('group:member:add', { groupId: selectedGroup.id, targetUserId: user.id });
+        closeAddMemberModal();
+    };
+    
+    addMemberUsersList.appendChild(li);
+  });
+  
+  addMemberModal.classList.remove('hidden');
+}
+
+function closeAddMemberModal() {
+    addMemberModal.classList.add('hidden');
+}
+
+if (chatHeaderInfo) {
+  chatHeaderInfo.addEventListener('click', () => {
+    if (selectedGroup) openGroupInfoModal();
+  });
+}
+
+
+if (closeInfoBtn) {
+  closeInfoBtn.addEventListener('click', closeGroupInfoModal);
+}
+
+if (addMemberBtn) {
+    addMemberBtn.onclick = openAddMemberModal;
+}
+
+if (cancelAddMemberBtn) {
+    cancelAddMemberBtn.onclick = closeAddMemberModal;
+}
+
+if (exitGroupBtn) {
+  exitGroupBtn.addEventListener('click', () => {
+    if (!selectedGroup) return;
+    if (confirm(`Are you sure you want to leave ${selectedGroup.name}?`)) {
+      socket.emit('group:leave', { groupId: selectedGroup.id });
+      closeGroupInfoModal();
+      selectedGroup = null;
+      setSelectedChatDisplay('', false);
+      messages.innerHTML = '';
+    }
+  });
+}
+
 deleteModal.addEventListener('click', (event) => {
+
   if (event.target === deleteModal) {
     closeDeleteModal();
   }
@@ -820,4 +1273,90 @@ deleteModal.addEventListener('click', (event) => {
 window.addEventListener('beforeunload', () => {
   stopLiveLocation();
   stopVoiceTracks();
+});
+
+if (adminOnlyMsgCheck) {
+    adminOnlyMsgCheck.addEventListener('change', () => {
+        if (!selectedGroup) return;
+        const adminsOnlyMessages = adminOnlyMsgCheck.checked;
+        socket.emit('group:settings:update', { 
+            groupId: selectedGroup.id, 
+            adminsOnlyMessages 
+        });
+    });
+}
+
+socket.on('group:settings:updated', ({ groupId, adminsOnlyMessages }) => {
+    // Update cached groups
+    const group = cachedGroups.find(g => g.id === groupId);
+    if (group) {
+        group.admins_only_messages = adminsOnlyMessages;
+    }
+    
+    // If currently viewing this group, refresh UI
+    if (selectedGroup && selectedGroup.id === groupId) {
+        selectedGroup.admins_only_messages = adminsOnlyMessages;
+        setSelectedChatDisplay(selectedGroup.name, true);
+        
+        // Also update info modal state if open
+        if (!groupInfoModal.classList.contains('hidden')) {
+            if (adminOnlyMsgCheck) {
+                adminOnlyMsgCheck.checked = adminsOnlyMessages;
+            }
+        }
+    }
+});
+
+socket.on('group:member:removed', ({ groupId }) => {
+    if (selectedGroup && selectedGroup.id === groupId) {
+        selectedGroup = null;
+        setSelectedChatDisplay('', false);
+        messages.innerHTML = '';
+        alert('You have been removed from this group.');
+    }
+});
+
+if (infoGroupMembersList) {
+    infoGroupMembersList.addEventListener('click', (e) => {
+        const removeBtn = e.target.closest('.remove-member-btn');
+        const promoteBtn = e.target.closest('.promote-member-btn');
+        
+        if (removeBtn) {
+            const targetUserId = removeBtn.dataset.userId;
+            if (!selectedGroup || !targetUserId) return;
+            
+            if (confirm(`Are you sure you want to remove this member?`)) {
+                socket.emit('group:member:remove', { 
+                    groupId: selectedGroup.id, 
+                    targetUserId: Number(targetUserId) 
+                });
+            }
+        } else if (promoteBtn) {
+            const targetUserId = promoteBtn.dataset.userId;
+            if (!selectedGroup || !targetUserId) return;
+            
+            if (confirm(`Make this user an Admin? they will have full control over settings and members.`)) {
+                socket.emit('group:member:promote', { 
+                    groupId: selectedGroup.id, 
+                    targetUserId: Number(targetUserId) 
+                });
+            }
+        }
+    });
+}
+
+socket.on('group:member:promoted', ({ groupId, targetUserId }) => {
+    // Update local cache
+    if (Number(targetUserId) === myUserId) {
+        const group = cachedGroups.find(g => g.id === groupId);
+        if (group) group.is_admin = true;
+    }
+    
+    // Refresh UI if viewing this group
+    if (selectedGroup && selectedGroup.id === groupId) {
+        setSelectedChatDisplay(selectedGroup.name, true);
+        if (!groupInfoModal.classList.contains('hidden')) {
+            openGroupInfoModal();
+        }
+    }
 });

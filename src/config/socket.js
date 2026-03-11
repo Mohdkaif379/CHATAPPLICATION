@@ -1,28 +1,46 @@
-﻿const { Server } = require('socket.io');
+const { Server } = require('socket.io');
 const userService = require('../services/userService');
 const chatService = require('../services/chatService');
 const authService = require('../services/authService');
+const groupService = require('../services/groupService');
 
 const istTimeFormatter = new Intl.DateTimeFormat('en-IN', {
   timeZone: 'Asia/Kolkata',
   hour: '2-digit',
   minute: '2-digit',
-  second: '2-digit',  hour12: true
+  second: '2-digit',
+  hour12: true
 });
 
 function toIstTime(timestamp) {
   return istTimeFormatter.format(new Date(timestamp));
 }
 
-async function emitUsersUpdate(io) {
+async function emitUsersUpdate(io, socket = null) {
   const allUsers = await authService.getAllUsers();
+  const onlineUsers = userService.getOnlineUsers();
   const users = allUsers.map((user) => ({
     id: user.id,
     username: user.username,
-    online: Boolean(userService.getOnlineById(user.id))
+    online: onlineUsers.some(ou => ou.id === user.id)
   }));
 
-  io.emit('users:update', { users });
+  if (socket) {
+    const user = userService.getBySocket(socket.id);
+    if (user && user.id) {
+       const groups = await groupService.getUserGroups(Number(user.id));
+       socket.emit('users:update', { users, groups });
+    } else {
+       socket.emit('users:update', { users });
+    }
+  } else {
+    // Update every online user personally
+    const onlineMap = userService.usersById; // Map of {id -> {id, username, socketId}}
+    for (const onlineUser of onlineMap.values()) {
+        const groups = await groupService.getUserGroups(onlineUser.id);
+        io.to(onlineUser.socketId).emit('users:update', { users, groups });
+    }
+  }
 }
 
 function formatMessage(row, currentUserId, targetUserId) {
@@ -49,6 +67,29 @@ function formatMessage(row, currentUserId, targetUserId) {
   };
 }
 
+function formatGroupMessage(row, currentUserId) {
+  return {
+    id: row.id,
+    groupId: row.group_id,
+    fromId: row.sender_id,
+    from: row.sender_id === currentUserId ? 'you' : row.sender_name || 'them',
+    text: row.text,
+    messageType: row.message_type || 'text',
+    fileUrl: row.file_url || null,
+    fileName: row.file_name || null,
+    fileSize: row.file_size || null,
+    fileMime: row.file_mime || null,
+    locationLat: row.location_lat || null,
+    locationLng: row.location_lng || null,
+    locationMode: row.location_mode || 'current',
+    locationUrl: row.message_type === 'location' ? row.text : null,
+    timestamp: row.created_at,
+    displayTime: row.display_time || toIstTime(row.created_at),
+    isDeleted: Boolean(row.is_deleted_for_everyone)
+  };
+}
+
+
 function configureSocket(server, sessionMiddleware) {
   const io = new Server(server);
 
@@ -74,7 +115,7 @@ function configureSocket(server, sessionMiddleware) {
     }
 
     socket.emit('session:ready', { username: register.user.username });
-    emitUsersUpdate(io).catch(() => {
+    emitUsersUpdate(io, socket).catch(() => {
       socket.emit('chat:error', { message: 'Could not load users list.' });
     });
 
@@ -155,7 +196,331 @@ function configureSocket(server, sessionMiddleware) {
       }
     });
 
+    socket.on('group:create', async ({ name, memberIds }) => {
+      try {
+        const currentUser = userService.getBySocket(socket.id);
+        if (!currentUser) return;
+
+        const group = await groupService.createGroup(name, currentUser.id, memberIds);
+        
+        // Save and broadcast creation system message
+        const systemMsg = await groupService.saveGroupMessage({
+          groupId: group.id,
+          senderId: currentUser.id,
+          text: `${currentUser.username} created the group "${name}"`,
+          messageType: 'system'
+        });
+
+        // Notify all online members to refresh their groups list
+        const members = await groupService.getGroupMembers(group.id);
+        const payload = systemMsg ? formatGroupMessage({ ...systemMsg, sender_name: 'System' }, 0) : null;
+
+        members.forEach(member => {
+          const onlineMember = userService.getOnlineById(member.id);
+          if (onlineMember) {
+            if (payload) {
+              io.to(onlineMember.socketId).emit('group:message', payload);
+            }
+            emitUsersUpdate(io, io.sockets.sockets.get(onlineMember.socketId)).catch(() => {});
+          }
+        });
+
+      } catch (error) {
+        socket.emit('chat:error', { message: 'Could not create group.' });
+      }
+    });
+
+    socket.on('group:members:get', async ({ groupId }) => {
+      try {
+        const members = await groupService.getGroupMembers(groupId);
+        socket.emit('group:members:list', { members });
+      } catch (error) {
+        socket.emit('chat:error', { message: 'Could not load group members.' });
+      }
+    });
+
+    socket.on('group:history', async ({ groupId }) => {
+
+      try {
+        const currentUser = userService.getBySocket(socket.id);
+        if (!currentUser) return;
+
+        const rows = await groupService.getGroupHistory(groupId, currentUser.id);
+        const messages = rows.map((row) => formatGroupMessage(row, currentUser.id));
+
+
+        socket.emit('group:history', {
+          groupId,
+          messages
+        });
+      } catch (error) {
+        socket.emit('chat:error', { message: 'Could not load group history.' });
+      }
+    });
+
+    socket.on('group:message', async ({ groupId, text, messageType, file, location }) => {
+      try {
+        const fromUser = userService.getBySocket(socket.id);
+        if (!fromUser) return;
+
+        // Verify membership
+        const members = await groupService.getGroupMembers(groupId);
+        if (!members.some(m => m.id === fromUser.id)) {
+          socket.emit('chat:error', { message: 'You are no longer a member of this group.' });
+          return;
+        }
+
+        // Check Admin-Only Messaging setting
+        const group = await groupService.getGroupById(groupId);
+        const isAdmin = await groupService.isUserAdmin(groupId, fromUser.id);
+        if (group && group.admins_only_messages && !isAdmin) {
+          socket.emit('chat:error', { message: 'Only admin can send messages in this group.' });
+          return;
+        }
+
+        const saved = await groupService.saveGroupMessage({
+          groupId,
+          senderId: fromUser.id,
+          text,
+          messageType,
+          file,
+          location
+        });
+
+        if (!saved) return;
+
+        // Get members to send message to
+        const payload = formatGroupMessage({ ...saved, sender_name: fromUser.username }, fromUser.id);
+
+        members.forEach(member => {
+          const onlineMember = userService.getOnlineById(member.id);
+          if (onlineMember) {
+            io.to(onlineMember.socketId).emit('group:message', payload);
+          }
+        });
+      } catch (error) {
+        socket.emit('chat:error', { message: 'Could not send group message.' });
+      }
+    });
+
+    socket.on('group:leave', async ({ groupId }) => {
+      try {
+        const currentUser = userService.getBySocket(socket.id);
+        if (!currentUser) return;
+
+        // Verify membership before allowing leave
+        const membersBefore = await groupService.getGroupMembers(groupId);
+        const isMember = membersBefore.some(m => m.id === currentUser.id);
+        if (!isMember) {
+          socket.emit('chat:error', { message: 'You are already not a member of this group.' });
+          return;
+        }
+
+        // Save system message
+        const systemMsg = await groupService.saveGroupMessage({
+          groupId,
+          senderId: currentUser.id,
+          text: `${currentUser.username} left the group`,
+          messageType: 'system'
+        });
+
+        // Remove user from group
+        await groupService.leaveGroup(groupId, currentUser.id);
+
+        // Notify remaining members
+        const members = await groupService.getGroupMembers(groupId);
+        if (systemMsg) {
+          const payload = formatGroupMessage({ ...systemMsg, sender_name: 'System' }, 0);
+          members.forEach(member => {
+            const onlineMember = userService.getOnlineById(member.id);
+            if (onlineMember) {
+              io.to(onlineMember.socketId).emit('group:message', payload);
+            }
+          });
+        }
+
+        // Send refresh signal to the user who left
+        emitUsersUpdate(io, socket).catch(() => {});
+
+      } catch (error) {
+        socket.emit('chat:error', { message: 'Could not leave group.' });
+      }
+    });
+
+    socket.on('group:member:add', async ({ groupId, targetUserId }) => {
+      try {
+        const requester = userService.getBySocket(socket.id);
+        if (!requester) return;
+
+        // Verify requester membership
+        const membersBefore = await groupService.getGroupMembers(groupId);
+        if (!membersBefore.some(m => m.id === requester.id)) {
+          return socket.emit('chat:error', { message: 'Unauthorized' });
+        }
+
+        const targetUser = await authService.getAllUsers().then(users => users.find(u => u.id === Number(targetUserId)));
+        if (!targetUser) return;
+
+        await groupService.addMember(groupId, targetUserId);
+
+        const systemMsg = await groupService.saveGroupMessage({
+          groupId,
+          senderId: requester.id,
+          text: `${requester.username} added ${targetUser.username}`,
+          messageType: 'system'
+        });
+
+        const updatedMembers = await groupService.getGroupMembers(groupId);
+        const payload = formatGroupMessage({ ...systemMsg, sender_name: 'System' }, 0);
+
+        updatedMembers.forEach(member => {
+          const onlineMember = userService.getOnlineById(member.id);
+          if (onlineMember) {
+            io.to(onlineMember.socketId).emit('group:message', payload);
+            // Refresh sidebar for all members (including both adder and added)
+            emitUsersUpdate(io, io.sockets.sockets.get(onlineMember.socketId)).catch(() => {});
+          }
+        });
+
+      } catch (error) {
+        socket.emit('chat:error', { message: 'Could not add member.' });
+      }
+    });
+
+    socket.on('group:member:remove', async ({ groupId, targetUserId }) => {
+      try {
+        const currentUser = userService.getBySocket(socket.id);
+        if (!currentUser) return;
+
+        const isAdmin = await groupService.isUserAdmin(groupId, currentUser.id);
+        if (!isAdmin) {
+          return socket.emit('chat:error', { message: 'Only admin can remove members.' });
+        }
+
+        const group = await groupService.getGroupById(groupId);
+        if (!group) return;
+
+        if (Number(targetUserId) === Number(group.creator_id)) {
+          return socket.emit('chat:error', { message: 'Group creator cannot be removed.' });
+        }
+
+        const targetUser = await authService.getAllUsers().then(users => users.find(u => u.id === Number(targetUserId)));
+        
+        await groupService.leaveGroup(groupId, targetUserId);
+
+        const systemMsg = await groupService.saveGroupMessage({
+          groupId,
+          senderId: currentUser.id,
+          text: `Admin removed ${targetUser ? targetUser.username : 'a member'}`,
+          messageType: 'system'
+        });
+
+        const members = await groupService.getGroupMembers(groupId);
+        const payload = systemMsg ? formatGroupMessage({ ...systemMsg, sender_name: 'System' }, 0) : null;
+        
+        // Notify the restricted user first
+        const onlineTarget = userService.getOnlineById(targetUserId);
+        if (onlineTarget) {
+            io.to(onlineTarget.socketId).emit('group:member:removed', { groupId });
+            emitUsersUpdate(io, io.sockets.sockets.get(onlineTarget.socketId)).catch(() => {});
+        }
+
+        // Notify remaining members
+        members.forEach(member => {
+          const onlineMember = userService.getOnlineById(member.id);
+          if (onlineMember) {
+            if (payload) {
+              io.to(onlineMember.socketId).emit('group:message', payload);
+            }
+            emitUsersUpdate(io, io.sockets.sockets.get(onlineMember.socketId)).catch(() => {});
+          }
+        });
+
+      } catch (error) {
+        socket.emit('chat:error', { message: 'Could not remove member.' });
+      }
+    });
+
+    socket.on('group:member:promote', async ({ groupId, targetUserId }) => {
+      try {
+        const currentUser = userService.getBySocket(socket.id);
+        if (!currentUser) return;
+
+        const isAdmin = await groupService.isUserAdmin(groupId, currentUser.id);
+        if (!isAdmin) {
+          return socket.emit('chat:error', { message: 'Only admin can promote members.' });
+        }
+
+        await groupService.promoteMember(groupId, targetUserId);
+
+        const targetUser = await authService.getAllUsers().then(users => users.find(u => u.id === Number(targetUserId)));
+        
+        const systemMsg = await groupService.saveGroupMessage({
+          groupId,
+          senderId: currentUser.id,
+          text: `Admin promoted ${targetUser ? targetUser.username : 'a member'} to Admin`,
+          messageType: 'system'
+        });
+
+        const members = await groupService.getGroupMembers(groupId);
+        const payload = systemMsg ? formatGroupMessage({ ...systemMsg, sender_name: 'System' }, 0) : null;
+        
+        members.forEach(member => {
+          const onlineMember = userService.getOnlineById(member.id);
+          if (onlineMember) {
+            if (payload) {
+              io.to(onlineMember.socketId).emit('group:message', payload);
+            }
+            // Notify all members of the promotion to update UI
+            io.to(onlineMember.socketId).emit('group:member:promoted', { groupId, targetUserId });
+          }
+        });
+
+      } catch (error) {
+        socket.emit('chat:error', { message: 'Could not promote member.' });
+      }
+    });
+
+    socket.on('group:settings:update', async ({ groupId, adminsOnlyMessages }) => {
+      try {
+        const currentUser = userService.getBySocket(socket.id);
+        if (!currentUser) return;
+
+        const isAdmin = await groupService.isUserAdmin(groupId, currentUser.id);
+        if (!isAdmin) {
+          return socket.emit('chat:error', { message: 'Only admin can change settings.' });
+        }
+
+        await groupService.updateGroupSettings(groupId, adminsOnlyMessages);
+
+        const systemMsg = await groupService.saveGroupMessage({
+          groupId,
+          senderId: currentUser.id,
+          text: `Admin ${adminsOnlyMessages ? 'enabled' : 'disabled'} "Admins only can message" setting`,
+          messageType: 'system'
+        });
+
+        const members = await groupService.getGroupMembers(groupId);
+        const payload = systemMsg ? formatGroupMessage({ ...systemMsg, sender_name: 'System' }, 0) : null;
+        
+        // Broadcast the setting change notification and refresh sidebar/UI for all members
+        members.forEach(member => {
+          const onlineMember = userService.getOnlineById(member.id);
+          if (onlineMember) {
+            if (payload) {
+              io.to(onlineMember.socketId).emit('group:message', payload);
+            }
+            io.to(onlineMember.socketId).emit('group:settings:updated', { groupId, adminsOnlyMessages });
+          }
+        });
+
+      } catch (error) {
+        socket.emit('chat:error', { message: 'Could not update group settings.' });
+      }
+    });
+
     socket.on('chat:seen', async ({ withUser }) => {
+
       try {
         const currentUser = userService.getBySocket(socket.id);
         if (!currentUser) return;
@@ -240,7 +605,59 @@ function configureSocket(server, sessionMiddleware) {
       }
     });
 
+    socket.on('group:delete', async ({ messageId, scope }) => {
+      try {
+        const currentUser = userService.getBySocket(socket.id);
+        if (!currentUser) return;
+
+        const id = Number(messageId);
+        if (!id) return;
+        const deleteScope = scope === 'everyone' ? 'everyone' : 'me';
+
+        const message = await groupService.getMessageById(id);
+        if (!message) {
+          socket.emit('chat:error', { message: 'Message not found.' });
+          return;
+        }
+
+        // Check if user is a member of the group
+        const members = await groupService.getGroupMembers(message.group_id);
+        const isMember = members.some(m => m.id === currentUser.id);
+        if (!isMember) {
+            socket.emit('chat:error', { message: 'Not allowed to delete this message.' });
+            return;
+        }
+
+        if (deleteScope === 'everyone') {
+          if (message.sender_id !== currentUser.id) {
+            socket.emit('chat:error', { message: 'Only sender can delete for everyone.' });
+            return;
+          }
+
+          const deleted = await groupService.deleteMessageForEveryone(id, currentUser.id);
+          if (!deleted) return;
+
+          members.forEach(member => {
+            const onlineMember = userService.getOnlineById(member.id);
+            if (onlineMember && onlineMember.socketId) {
+              io.to(onlineMember.socketId).emit('group:deleted', {
+                messageId: deleted.id,
+                groupId: deleted.group_id,
+                scope: 'everyone'
+              });
+            }
+          });
+        } else {
+          await groupService.hideMessageForUser(id, currentUser.id);
+          socket.emit('group:deleted', { messageId: id, scope: 'me' });
+        }
+      } catch (error) {
+        socket.emit('chat:error', { message: 'Could not delete group message.' });
+      }
+    });
+
     socket.on('disconnect', () => {
+
       const removed = userService.removeBySocket(socket.id);
       if (!removed) return;
 
@@ -250,4 +667,5 @@ function configureSocket(server, sessionMiddleware) {
 }
 
 module.exports = configureSocket;
+
 

@@ -1,15 +1,19 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Chat Application</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Space+Grotesk:wght@500;700&display=swap"
+    rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
   <link rel="stylesheet" href="/css/style.css" />
 </head>
+
 <body>
   <main class="chat-layout">
     <section class="panel sidebar-panel">
@@ -19,11 +23,30 @@
           <h4>Chat Space</h4>
         </div>
 
-        <div class="profile-mini">
-          <span class="dot"></span>
-          <div>
-            <strong id="currentUser"><%= currentUser.username %></strong>
-            <p class="mini-status">online</p>
+        <div class="profile-container" id="profileToggle">
+          <div class="profile-mini">
+            <span class="dot"></span>
+            <div>
+              <strong id="currentUser">
+                <%= currentUser.username %>
+              </strong>
+              <p class="mini-status">online</p>
+            </div>
+            <i class="fa-solid fa-chevron-down profile-chevron"></i>
+          </div>
+
+          <div id="profileDropdown" class="profile-dropdown hidden">
+            <button type="button" class="dropdown-item" id="openSettingsBtn">
+              <i class="fa-solid fa-gear"></i> Settings
+            </button>
+            <button type="button" class="dropdown-item" id="createGroupBtn">
+              <i class="fa-solid fa-user-group"></i> Create Group
+            </button>
+            <div class="dropdown-divider"></div>
+            <form action="/logout" method="post" id="logoutForm" style="display: none;"></form>
+            <button type="button" class="dropdown-item danger" id="dropdownLogoutBtn">
+              <i class="fa-solid fa-right-from-bracket"></i> Logout
+            </button>
           </div>
         </div>
       </div>
@@ -34,14 +57,17 @@
         <ul id="usersList"></ul>
       </div>
 
-      <form action="/logout" method="post">
-        <button type="submit" class="btn-ghost">Logout</button>
-      </form>
+      <div class="groups-wrap">
+        <h2>Groups</h2>
+        <ul id="groupsList"></ul>
+      </div>
+
+
     </section>
 
     <section class="panel chat-panel">
       <div class="chat-head">
-        <div class="chat-head-left">
+        <div class="chat-head-left" id="chatHeaderInfo">
           <div id="selectedUserAvatar" class="selected-user-avatar"></div>
           <h4 id="chatTitle"></h4>
         </div>
@@ -55,10 +81,14 @@
 
       <form id="messageForm" class="composer">
         <div class="input-shell">
-          <label for="fileInput" class="file-picker-inside" title="Attach file"><i class="fa-solid fa-paperclip" aria-hidden="true"></i></label>
-          <button id="voiceToggle" type="button" class="voice-picker-inside" title="Record voice"><i class="fa-solid fa-microphone"></i></button>
-          <button id="locationToggle" type="button" class="location-picker-inside" title="Send location"><i class="fa-solid fa-location-dot"></i></button>
-          <button id="emojiToggle" type="button" class="emoji-picker-inside" title="Add emoji"><i class="fa-regular fa-face-smile"></i></button>
+          <label for="fileInput" class="file-picker-inside" title="Attach file"><i class="fa-solid fa-paperclip"
+              aria-hidden="true"></i></label>
+          <button id="voiceToggle" type="button" class="voice-picker-inside" title="Record voice"><i
+              class="fa-solid fa-microphone"></i></button>
+          <button id="locationToggle" type="button" class="location-picker-inside" title="Send location"><i
+              class="fa-solid fa-location-dot"></i></button>
+          <button id="emojiToggle" type="button" class="emoji-picker-inside" title="Add emoji"><i
+              class="fa-regular fa-face-smile"></i></button>
           <input id="fileInput" type="file" class="hidden-file-input" />
           <input id="message" type="text" placeholder="Write a message..." required />
           <emoji-picker id="emojiPicker" class="emoji-panel hidden"></emoji-picker>
@@ -120,6 +150,88 @@
     </div>
   </div>
 
+  <div id="createGroupModal" class="modal-backdrop hidden">
+    <div class="modal-card modal-large">
+      <h3>Create New Group</h3>
+      <div class="group-form">
+        <input type="text" id="groupNameInput" placeholder="Enter group name..." required />
+        <div class="member-selection">
+          <p class="muted">Select Members:</p>
+          <ul id="groupMembersList" class="selection-list"></ul>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="submitCreateGroupBtn" type="button" class="modal-btn">Create Group</button>
+        <button id="cancelCreateGroupBtn" type="button" class="modal-btn neutral">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+
+  <div id="groupInfoModal" class="modal-backdrop hidden">
+    <div class="modal-card modal-large group-info-card">
+      <div class="group-info-header">
+        <div class="group-info-avatar" id="infoGroupAvatar">
+          <i class="fa-solid fa-user-group"></i>
+        </div>
+        <h2 id="infoGroupName">Group Info</h2>
+        <p class="eyebrow">Group Interaction & Settings</p>
+      </div>
+
+      <div class="group-info-body">
+        <div class="info-section">
+          <div class="section-header">
+            <i class="fa-solid fa-users"></i>
+            <span>Members</span>
+          </div>
+          <ul id="infoGroupMembersList" class="info-member-list"></ul>
+        </div>
+
+        <div id="adminControls" class="info-section admin-settings hidden">
+          <div class="section-header">
+            <i class="fa-solid fa-gears"></i>
+            <span>Settings</span>
+          </div>
+          <div class="setting-item">
+            <div class="setting-info">
+              <span class="setting-label">Admin Only Messaging</span>
+              <span class="setting-desc">Only admins can send messages to this group</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="adminOnlyMsgCheck">
+              <span class="slider round"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions group-info-actions">
+        <button id="addMemberBtn" type="button" class="action-btn primary">
+          <i class="fa-solid fa-user-plus"></i> Add Member
+        </button>
+        <button id="exitGroupBtn" type="button" class="action-btn danger">
+          <i class="fa-solid fa-right-from-bracket"></i> Exit Group
+        </button>
+        <button id="closeInfoBtn" type="button" class="action-btn secondary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="addMemberModal" class="modal-backdrop hidden">
+    <div class="modal-card modal-large">
+      <h3>Add Member to Group</h3>
+      <div class="group-form">
+        <div class="member-selection">
+          <p class="muted">Select a User:</p>
+          <ul id="addMemberUsersList" class="selection-list"></ul>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="cancelAddMemberBtn" type="button" class="modal-btn neutral">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/socket.io/socket.io.js"></script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
   <script>
@@ -130,4 +242,5 @@
   </script>
   <script src="/js/chat.js"></script>
 </body>
+
 </html>
