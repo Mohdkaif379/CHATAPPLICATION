@@ -1,6 +1,7 @@
 const pool = require('./database');
 
 async function initializeDatabase() {
+  console.log('[initDb] Starting database initialization...');
   await pool.query(`
     CREATE TABLE IF NOT EXISTS chat_users (
       id SERIAL PRIMARY KEY,
@@ -208,6 +209,7 @@ async function initializeDatabase() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
   `);
+  console.log('[initDb] Database initialization completed successfully.');
 }
 
 module.exports = initializeDatabase;

@@ -7,14 +7,23 @@ const { handleUploadErrors } = require('./middleware/authMiddleware');
 
 const app = express();
 
-const rootDir = process.cwd();
-console.log('App root directory:', rootDir);
+// Use __dirname to find root reliably regardless of where the app is started
+const rootDir = path.resolve(__dirname, '..');
+console.log('[DEBUG] Root directory:', rootDir);
+
 const fs = require('fs');
 try {
-  console.log('Root directory contents:', fs.readdirSync(rootDir));
+  const contents = fs.readdirSync(rootDir);
+  console.log('[DEBUG] Root contents:', contents);
 } catch (e) {
-  console.error('Failed to list root directory:', e.message);
+  console.error('[ERROR] Failed to list root:', e.message);
 }
+
+// Move debug logging to the top to capture ALL requests
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(rootDir, 'views'));
@@ -24,16 +33,10 @@ app.use(express.json());
 app.use(express.static(path.join(rootDir, 'public')));
 app.use(sessionMiddleware);
 
-// Debug middleware to log all requests
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  next();
-});
-
 app.use('/', webRoutes);
 app.use(handleUploadErrors);
 
-// Catch-all 404 handler for debugging
+// Catch-all 404 handler
 app.use((req, res) => {
   console.warn(`[404] No route matched: ${req.method} ${req.url}`);
   res.status(404).send(`Route ${req.url} not found`);
