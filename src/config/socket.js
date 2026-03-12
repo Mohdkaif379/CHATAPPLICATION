@@ -94,12 +94,14 @@ function configureSocket(server, sessionMiddleware) {
   const io = new Server(server);
 
   io.use((socket, next) => {
+    console.log('[Socket.io] New connection attempt...');
     sessionMiddleware(socket.request, {}, () => {
       const user = socket.request.session && socket.request.session.user;
       if (!user) {
+        console.warn('[Socket.io] Unauthorized connection attempt');
         return next(new Error('Unauthorized'));
       }
-
+      console.log(`[Socket.io] User authorized: ${user.username}`);
       return next();
     });
   });
