@@ -753,16 +753,19 @@ socket.on('group:typing', ({ groupId, from, isTyping }) => {
 function updateTypingStatusUI(from, isTyping, isGroup = false) {
     let statusEl = document.getElementById('typing-indicator-text');
     if (!statusEl) {
+        const title = document.getElementById('chatTitle');
+        if (!title) return;
+
+        // Wrap title and status in a div for vertical layout
+        const wrapper = document.createElement('div');
+        wrapper.className = 'chat-head-title-wrap';
+        title.parentNode.insertBefore(wrapper, title);
+        wrapper.appendChild(title);
+
         statusEl = document.createElement('p');
         statusEl.id = 'typing-indicator-text';
-        statusEl.className = 'mini-status typing-status';
-        const info = document.getElementById('chatHeaderInfo');
-        if (info) {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'status-wrapper';
-            const title = document.getElementById('chatTitle');
-            title.after(statusEl);
-        }
+        statusEl.className = 'typing-status';
+        wrapper.appendChild(statusEl);
     }
 
     if (isTyping) {
@@ -770,7 +773,11 @@ function updateTypingStatusUI(from, isTyping, isGroup = false) {
         statusEl.classList.add('visible');
     } else {
         statusEl.classList.remove('visible');
-        statusEl.textContent = '';
+        setTimeout(() => {
+            if (!statusEl.classList.contains('visible')) {
+                statusEl.textContent = '';
+            }
+        }, 300);
     }
 }
 
