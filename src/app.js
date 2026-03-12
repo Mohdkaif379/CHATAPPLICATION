@@ -21,7 +21,8 @@ try {
 
 // Move debug logging to the top to capture ALL requests
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  const host = req.get('host');
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} (Host: ${host})`);
   next();
 });
 

@@ -551,7 +551,32 @@ messageForm.addEventListener('submit', (e) => {
   }
   
   messageInput.value = '';
+  socket.emit(selectedGroup ? 'group:typing' : 'chat:typing', {
+      to: selectedUser,
+      groupId: selectedGroup ? selectedGroup.id : null,
+      isTyping: false
+  });
   if (emojiPicker) emojiPicker.classList.add('hidden');
+});
+
+let typingTimeout = null;
+messageInput.addEventListener('input', () => {
+    if (!selectedUser && !selectedGroup) return;
+
+    socket.emit(selectedGroup ? 'group:typing' : 'chat:typing', {
+        to: selectedUser,
+        groupId: selectedGroup ? selectedGroup.id : null,
+        isTyping: true
+    });
+
+    if (typingTimeout) clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(() => {
+        socket.emit(selectedGroup ? 'group:typing' : 'chat:typing', {
+            to: selectedUser,
+            groupId: selectedGroup ? selectedGroup.id : null,
+            isTyping: false
+        });
+    }, 2000);
 });
 
 
@@ -712,6 +737,42 @@ socket.on('connect', () => {
 socket.on('session:ready', ({ username }) => {
   setStatus(`Status: Connected as ${username}`);
 });
+
+const typingIndicators = new Map(); // key -> username/groupId
+
+socket.on('chat:typing', ({ from, isTyping }) => {
+    if (from !== selectedUser) return;
+    updateTypingStatusUI(from, isTyping);
+});
+
+socket.on('group:typing', ({ groupId, from, isTyping }) => {
+    if (!selectedGroup || selectedGroup.id !== groupId) return;
+    updateTypingStatusUI(from, isTyping, true);
+});
+
+function updateTypingStatusUI(from, isTyping, isGroup = false) {
+    let statusEl = document.getElementById('typing-indicator-text');
+    if (!statusEl) {
+        statusEl = document.createElement('p');
+        statusEl.id = 'typing-indicator-text';
+        statusEl.className = 'mini-status typing-status';
+        const info = document.getElementById('chatHeaderInfo');
+        if (info) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'status-wrapper';
+            const title = document.getElementById('chatTitle');
+            title.after(statusEl);
+        }
+    }
+
+    if (isTyping) {
+        statusEl.textContent = isGroup ? `${toDisplayName(from)} is typing...` : 'typing...';
+        statusEl.classList.add('visible');
+    } else {
+        statusEl.classList.remove('visible');
+        statusEl.textContent = '';
+    }
+}
 
 function renderUsers(users) {
   usersList.innerHTML = '';

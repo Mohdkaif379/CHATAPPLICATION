@@ -198,6 +198,37 @@ function configureSocket(server, sessionMiddleware) {
       }
     });
 
+    socket.on('chat:typing', async ({ to, isTyping }) => {
+      const fromUser = userService.getBySocket(socket.id);
+      if (!fromUser) return;
+
+      const targetOnline = userService.getOnlineByUsername(to);
+      if (targetOnline && targetOnline.socketId) {
+        io.to(targetOnline.socketId).emit('chat:typing', {
+          from: fromUser.username,
+          isTyping
+        });
+      }
+    });
+
+    socket.on('group:typing', async ({ groupId, isTyping }) => {
+      const fromUser = userService.getBySocket(socket.id);
+      if (!fromUser) return;
+
+      const members = await groupService.getGroupMembers(groupId);
+      members.forEach((member) => {
+        if (member.id === fromUser.id) return;
+        const onlineMember = userService.getOnlineById(member.id);
+        if (onlineMember && onlineMember.socketId) {
+          io.to(onlineMember.socketId).emit('group:typing', {
+            groupId,
+            from: fromUser.username,
+            isTyping
+          });
+        }
+      });
+    });
+
     socket.on('group:create', async ({ name, memberIds }) => {
       try {
         const currentUser = userService.getBySocket(socket.id);
