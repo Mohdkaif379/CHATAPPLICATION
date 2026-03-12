@@ -1,4 +1,4 @@
-﻿require('./config/env');
+require('./config/env');
 const express = require('express');
 const path = require('path');
 const webRoutes = require('./routes/webRoutes');
@@ -18,4 +18,4 @@ app.use(sessionMiddleware);
 app.use('/', webRoutes);
 app.use(handleUploadErrors);
 
-module.exports = { app, sessionMiddleware };
+module.exports = app;

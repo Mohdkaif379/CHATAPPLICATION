@@ -1,6 +1,12 @@
-﻿const session = require('express-session');
+const session = require('express-session');
+const pgSession = require('connect-pg-simple')(session);
+const pool = require('./database');
 
 const sessionMiddleware = session({
+  store: new pgSession({
+    pool: pool,
+    tableName: 'session'
+  }),
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
@@ -10,3 +16,4 @@ const sessionMiddleware = session({
 });
 
 module.exports = sessionMiddleware;
+

@@ -1,5 +1,6 @@
-﻿const http = require('http');
-const { app, sessionMiddleware } = require('./app');
+const http = require('http');
+const app = require('./app');
+const sessionMiddleware = require('./config/session');
 const configureSocket = require('./config/socket');
 const initializeDatabase = require('./config/initDb');
 

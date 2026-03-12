@@ -184,6 +184,30 @@ async function initializeDatabase() {
     ALTER TABLE chat_groups
     ADD COLUMN IF NOT EXISTS admins_only_messages BOOLEAN NOT NULL DEFAULT FALSE;
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS "session" (
+      "sid" varchar NOT NULL COLLATE "default",
+      "sess" json NOT NULL,
+      "expire" timestamp(6) NOT NULL
+    )
+    WITH (OIDS=FALSE);
+  `);
+
+  const res = await pool.query(`
+    SELECT 1 FROM information_schema.table_constraints 
+    WHERE constraint_name = 'session_pkey' AND table_name = 'session'
+  `);
+  
+  if (res.rows.length === 0) {
+    await pool.query(`
+      ALTER TABLE "session" ADD CONSTRAINT "session_pkey" PRIMARY KEY ("sid") NOT DEFERRABLE INITIALLY IMMEDIATE;
+    `);
+  }
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
+  `);
 }
 
 module.exports = initializeDatabase;
