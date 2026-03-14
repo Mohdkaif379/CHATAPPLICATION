@@ -501,7 +501,7 @@ function updateSelectedUserStatusText() {
   }
 
   const lastActiveLabel = formatLastActiveAt(match.lastActiveAt);
-  selectedUserText.textContent = lastActiveLabel ? `offline • last active ${lastActiveLabel}` : 'offline';
+  selectedUserText.textContent = lastActiveLabel ? `offline • last seen ${lastActiveLabel}` : 'offline';
 }
 
 function setSelectedChatDisplay(name, isGroup = false, avatarUrl = '') {
