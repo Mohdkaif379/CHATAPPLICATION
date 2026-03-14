@@ -3,6 +3,7 @@ const userService = require('../services/userService');
 const chatService = require('../services/chatService');
 const authService = require('../services/authService');
 const groupService = require('../services/groupService');
+const statusService = require('../services/statusService');
 
 const istTimeFormatter = new Intl.DateTimeFormat('en-IN', {
   timeZone: 'Asia/Kolkata',
@@ -42,6 +43,47 @@ async function emitUsersUpdate(io, socket = null) {
         io.to(onlineUser.socketId).emit('users:update', { users, groups });
     }
   }
+}
+
+function emitStatusUpdate(io, socket = null) {
+  if (socket) {
+    const user = userService.getBySocket(socket.id);
+    if (!user) return;
+    socket.emit('status:list', { statuses: statusService.listForUser(user.id) });
+    return;
+  }
+
+  // ensure expired statuses are removed periodically/consistently
+  statusService.pruneExpired();
+
+  const onlineMap = userService.usersById;
+  for (const onlineUser of onlineMap.values()) {
+    io.to(onlineUser.socketId).emit('status:list', { statuses: statusService.listForUser(onlineUser.id) });
+  }
+}
+
+async function emitStatusDetailsToOwner(io, statusId) {
+  const status = statusService.findById(statusId);
+  if (!status) return;
+
+  const ownerOnline = userService.getOnlineById(status.userId);
+  if (!ownerOnline || !ownerOnline.socketId) return;
+
+  const viewedIds = statusService.getViewedUserIds(statusId);
+  const likedIds = statusService.getLikedUserIds(statusId);
+  const uniqueIds = Array.from(new Set([...viewedIds, ...likedIds]));
+
+  const users = await authService.getUsersByIds(uniqueIds);
+  const userById = new Map(users.map((u) => [Number(u.id), u.username]));
+
+  const viewedBy = viewedIds
+    .map((id) => ({ id, username: userById.get(Number(id)) }))
+    .filter((u) => u.username);
+  const likedBy = likedIds
+    .map((id) => ({ id, username: userById.get(Number(id)) }))
+    .filter((u) => u.username);
+
+  io.to(ownerOnline.socketId).emit('status:details', { statusId: Number(statusId), viewedBy, likedBy });
 }
 
 function formatMessage(row, currentUserId, targetUserId) {
@@ -94,6 +136,15 @@ function formatGroupMessage(row, currentUserId) {
 function configureSocket(server, sessionMiddleware) {
   const io = new Server(server);
 
+  // Keep status TTL (24h) pruning + live UI updates even when nobody interacts.
+  setInterval(() => {
+    try {
+      emitStatusUpdate(io);
+    } catch (e) {
+      // ignore
+    }
+  }, 60_000);
+
   io.use((socket, next) => {
     console.log('[Socket.io] New connection attempt...');
     sessionMiddleware(socket.request, {}, () => {
@@ -122,6 +173,7 @@ function configureSocket(server, sessionMiddleware) {
       socket.emit('chat:error', { message: 'Could not load users list.' });
     });
     emitUsersUpdate(io).catch(() => {});
+    emitStatusUpdate(io, socket);
 
     socket.on('chat:history', async ({ withUser }) => {
       try {
@@ -210,6 +262,83 @@ function configureSocket(server, sessionMiddleware) {
           from: fromUser.username,
           isTyping
         });
+      }
+    });
+
+    socket.on('status:create', ({ type, text, mediaUrl }) => {
+      const fromUser = userService.getBySocket(socket.id);
+      if (!fromUser) return;
+
+      const created = statusService.create({
+        userId: fromUser.id,
+        username: fromUser.username,
+        type,
+        text,
+        mediaUrl
+      });
+
+      if (!created) {
+        socket.emit('chat:error', { message: 'Could not create status.' });
+        return;
+      }
+
+      emitStatusUpdate(io);
+    });
+
+    socket.on('status:view', ({ statusId }) => {
+      const viewer = userService.getBySocket(socket.id);
+      if (!viewer) return;
+      statusService.markViewed(statusId, viewer.id);
+      emitStatusUpdate(io, socket);
+      emitStatusDetailsToOwner(io, statusId).catch(() => {});
+    });
+
+    socket.on('status:like', ({ statusId }) => {
+      const liker = userService.getBySocket(socket.id);
+      if (!liker) return;
+      const result = statusService.toggleLike(statusId, liker.id);
+      if (!result) return;
+      emitStatusUpdate(io);
+      emitStatusDetailsToOwner(io, statusId).catch(() => {});
+    });
+
+    socket.on('status:delete', ({ statusId }) => {
+      const requester = userService.getBySocket(socket.id);
+      if (!requester) return;
+
+      const ok = statusService.deleteByIdForUser(statusId, requester.id);
+      if (!ok) return;
+
+      emitStatusUpdate(io);
+      socket.emit('status:deleted', { statusId: Number(statusId) });
+    });
+
+    socket.on('status:details', async ({ statusId }) => {
+      try {
+        const requester = userService.getBySocket(socket.id);
+        if (!requester) return;
+
+        const status = statusService.findById(statusId);
+        if (!status) return;
+        if (Number(status.userId) !== Number(requester.id)) return;
+
+        const viewedIds = statusService.getViewedUserIds(statusId);
+        const likedIds = statusService.getLikedUserIds(statusId);
+
+        const uniqueIds = Array.from(new Set([...viewedIds, ...likedIds]));
+        const users = await authService.getUsersByIds(uniqueIds);
+        const userById = new Map(users.map((u) => [Number(u.id), u.username]));
+
+        const viewedBy = viewedIds
+          .map((id) => ({ id, username: userById.get(Number(id)) }))
+          .filter((u) => u.username);
+        const likedBy = likedIds
+          .map((id) => ({ id, username: userById.get(Number(id)) }))
+          .filter((u) => u.username);
+
+        socket.emit('status:details', { statusId: Number(statusId), viewedBy, likedBy });
+      } catch (error) {
+        // ignore
       }
     });
 

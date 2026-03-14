@@ -69,6 +69,14 @@ class AuthService {
     const result = await pool.query('SELECT id, username FROM chat_users ORDER BY username ASC');
     return result.rows;
   }
+
+  async getUsersByIds(ids) {
+    const clean = Array.isArray(ids) ? ids.map((id) => Number(id)).filter(Boolean) : [];
+    if (!clean.length) return [];
+
+    const result = await pool.query('SELECT id, username FROM chat_users WHERE id = ANY($1::int[])', [clean]);
+    return result.rows;
+  }
 }
 
 module.exports = new AuthService();

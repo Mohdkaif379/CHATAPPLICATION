@@ -51,15 +51,102 @@
         </div>
       </div>
 
-      <div class="online-wrap">
-        <h2>Online Users</h2>
-        <input id="usersSearch" type="text" placeholder="Search users..." />
-        <ul id="usersList"></ul>
-      </div>
+      <div class="sidebar-main">
+        <nav class="sidebar-nav" aria-label="Chat navigation">
+          <button type="button" class="nav-icon-btn active" data-sidebar-view="messages" title="Messages"
+            aria-label="Messages">
+            <i class="fa-solid fa-message"></i>
+          </button>
+          <button type="button" class="nav-icon-btn" data-sidebar-view="status" title="Status" aria-label="Status">
+            <i class="fa-solid fa-circle-info"></i>
+          </button>
+          <button type="button" class="nav-icon-btn" data-sidebar-view="settings" title="Settings"
+            aria-label="Settings">
+            <i class="fa-solid fa-gear"></i>
+          </button>
+        </nav>
 
-      <div class="groups-wrap">
-        <h2>Groups</h2>
-        <ul id="groupsList"></ul>
+        <div class="sidebar-views">
+          <div id="sidebarViewMessages" class="sidebar-view">
+            <div class="online-wrap">
+              <h2>Online Users</h2>
+              <input id="usersSearch" type="text" placeholder="Search users..." />
+              <ul id="usersList"></ul>
+            </div>
+
+            <div class="groups-wrap">
+              <h2>Groups</h2>
+              <ul id="groupsList"></ul>
+            </div>
+          </div>
+
+          <div id="sidebarViewStatus" class="sidebar-view hidden">
+            <div class="status-screen">
+              <div class="status-card-white">
+                <h2 class="status-title">Status</h2>
+
+                <div class="status-my-wrap">
+                  <button type="button" class="status-my" id="myStatusBtn" aria-label="My status">
+                    <span class="status-avatar status-avatar-me" aria-hidden="true">
+                      <i class="fa-solid fa-user"></i>
+                      <span class="status-plus"><i class="fa-solid fa-plus"></i></span>
+                    </span>
+                    <span class="status-my-text">
+                      <strong>My status</strong>
+                      <span class="muted" id="myStatusSubtext">Click to add status update</span>
+                    </span>
+                  </button>
+
+                  <div id="statusComposer" class="status-composer hidden" role="dialog" aria-label="Add status">
+                    <div id="statusComposerMenu" class="status-menu" role="menu" aria-label="Status options">
+                      <button type="button" class="status-menu-item" id="statusAddMediaBtn" role="menuitem">
+                        <i class="fa-regular fa-image"></i>
+                        <span>Photos &amp; videos</span>
+                      </button>
+                      <button type="button" class="status-menu-item" id="statusAddTextBtn" role="menuitem">
+                        <i class="fa-solid fa-pen"></i>
+                        <span>Text</span>
+                      </button>
+                    </div>
+
+                    <div id="statusTextComposer" class="status-text-composer hidden">
+                      <textarea id="statusTextInput" class="status-textarea" rows="3"
+                        placeholder="Write your status..."></textarea>
+                      <div class="status-composer-footer">
+                        <button type="button" class="status-action-btn secondary" id="statusCancelBtn">Cancel</button>
+                        <button type="button" class="status-action-btn primary" id="statusSendTextBtn">Post</button>
+                      </div>
+                    </div>
+
+                    <input id="statusFileInput" type="file" class="hidden-file-input" />
+                  </div>
+                </div>
+
+                <p class="status-section-title hidden" id="myStatusSectionTitle">My updates</p>
+                <ul class="status-list hidden" id="myStatusList"></ul>
+
+                <p class="status-section-title">Recent</p>
+                <ul class="status-list" id="recentStatusList"></ul>
+
+                <p class="status-section-title">Viewed</p>
+                <ul class="status-list" id="viewedStatusList"></ul>
+              </div>
+            </div>
+          </div>
+
+          <div id="sidebarViewSettings" class="sidebar-view hidden">
+            <h2>Settings</h2>
+            <p class="muted">Logged in as <strong><%= currentUser.username %></strong></p>
+            <div class="settings-actions">
+              <button type="button" class="settings-btn" id="settingsCreateGroupBtn">
+                <i class="fa-solid fa-user-group"></i> Create Group
+              </button>
+              <button type="button" class="settings-btn danger" id="settingsLogoutBtn">
+                <i class="fa-solid fa-right-from-bracket"></i> Logout
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
 
@@ -231,6 +318,53 @@
       </div>
       <div class="modal-actions">
         <button id="cancelAddMemberBtn" type="button" class="modal-btn neutral">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="statusViewerModal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-card modal-large status-viewer-card" role="dialog" aria-label="Status viewer">
+      <div class="status-viewer-head">
+        <div class="status-viewer-meta">
+          <h3 id="statusViewerTitle">Status</h3>
+          <p class="muted" id="statusViewerTime"></p>
+        </div>
+        <button type="button" class="status-viewer-close" id="statusViewerCloseBtn" aria-label="Close status">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div id="statusViewerBody" class="status-viewer-body">
+        <div id="statusViewerStrip" class="status-viewer-strip hidden" aria-label="Status timeline"></div>
+        <div id="statusViewerContent" class="status-viewer-content"></div>
+        <div class="status-viewer-actions">
+          <button type="button" class="status-like-btn" id="statusLikeBtn" aria-label="Like status">
+            <i class="fa-regular fa-heart" id="statusLikeIcon"></i>
+          </button>
+          <span class="status-like-count" id="statusLikeCount">0</span>
+        </div>
+      </div>
+      <div id="statusViewerFooter" class="status-viewer-footer hidden" aria-label="Status footer">
+        <button type="button" class="status-footer-btn" id="statusViewsBtn" aria-label="Viewed by">
+          <i class="fa-solid fa-eye"></i>
+          <span id="statusViewsCount">0</span>
+        </button>
+        <button type="button" class="status-footer-btn" id="statusLikesBtn" aria-label="Liked by">
+          <i class="fa-solid fa-heart"></i>
+          <span id="statusLikesCount">0</span>
+        </button>
+        <button type="button" class="status-footer-btn danger" id="statusDeleteBtn" aria-label="Delete status">
+          <i class="fa-solid fa-trash"></i>
+          <span>Delete</span>
+        </button>
+
+        <div id="statusFooterDropdown" class="status-footer-dropdown hidden" role="menu" aria-label="Status details">
+          <div class="status-footer-tabs">
+            <button type="button" class="status-tab-btn active" id="statusTabViewed">Viewed</button>
+            <button type="button" class="status-tab-btn" id="statusTabLiked">Liked</button>
+          </div>
+          <ul class="insight-list" id="statusViewedByList"></ul>
+          <ul class="insight-list hidden" id="statusLikedByList"></ul>
+        </div>
       </div>
     </div>
   </div>

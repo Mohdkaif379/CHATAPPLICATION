@@ -34,6 +34,27 @@ const startVoiceBtn = document.getElementById('startVoiceBtn');
 const stopVoiceBtn = document.getElementById('stopVoiceBtn');
 const sendVoiceBtn = document.getElementById('sendVoiceBtn');
 const cancelVoiceBtn = document.getElementById('cancelVoiceBtn');
+const statusViewerModal = document.getElementById('statusViewerModal');
+const statusViewerCloseBtn = document.getElementById('statusViewerCloseBtn');
+const statusViewerTitle = document.getElementById('statusViewerTitle');
+const statusViewerTime = document.getElementById('statusViewerTime');
+const statusViewerBody = document.getElementById('statusViewerBody');
+const statusViewerStrip = document.getElementById('statusViewerStrip');
+const statusViewerContent = document.getElementById('statusViewerContent');
+const statusLikeBtn = document.getElementById('statusLikeBtn');
+const statusLikeIcon = document.getElementById('statusLikeIcon');
+const statusLikeCount = document.getElementById('statusLikeCount');
+const statusViewerFooter = document.getElementById('statusViewerFooter');
+const statusViewsBtn = document.getElementById('statusViewsBtn');
+const statusLikesBtn = document.getElementById('statusLikesBtn');
+const statusViewsCount = document.getElementById('statusViewsCount');
+const statusLikesCount = document.getElementById('statusLikesCount');
+const statusFooterDropdown = document.getElementById('statusFooterDropdown');
+const statusTabViewed = document.getElementById('statusTabViewed');
+const statusTabLiked = document.getElementById('statusTabLiked');
+const statusDeleteBtn = document.getElementById('statusDeleteBtn');
+const statusViewedByList = document.getElementById('statusViewedByList');
+const statusLikedByList = document.getElementById('statusLikedByList');
 
 const createGroupModal = document.getElementById('createGroupModal');
 const groupNameInput = document.getElementById('groupNameInput');
@@ -68,6 +89,428 @@ let pendingDelete = null;
 let cachedUsers = [];
 let cachedGroups = [];
 let selectedChatTyping = { isTyping: false, isGroup: false };
+let currentSidebarView = 'messages';
+let statusCacheById = new Map();
+let currentViewedStatusId = null;
+let statusDetailsCacheById = new Map(); // statusId -> { viewedBy, likedBy }
+let statusThreadsCache = [];
+let currentThread = null;
+let currentThreadIndex = -1;
+
+const recentStatusList = document.getElementById('recentStatusList');
+const viewedStatusList = document.getElementById('viewedStatusList');
+const myStatusList = document.getElementById('myStatusList');
+const myStatusSectionTitle = document.getElementById('myStatusSectionTitle');
+const myStatusSubtext = document.getElementById('myStatusSubtext');
+
+function setSidebarView(viewKey) {
+  const messagesView = document.getElementById('sidebarViewMessages');
+  const statusView = document.getElementById('sidebarViewStatus');
+  const settingsView = document.getElementById('sidebarViewSettings');
+  const navButtons = document.querySelectorAll('[data-sidebar-view]');
+
+  if (!messagesView || !statusView || !settingsView) return;
+
+  const key = String(viewKey || '').toLowerCase();
+  currentSidebarView = key || 'messages';
+
+  messagesView.classList.toggle('hidden', currentSidebarView !== 'messages');
+  statusView.classList.toggle('hidden', currentSidebarView !== 'status');
+  settingsView.classList.toggle('hidden', currentSidebarView !== 'settings');
+
+  navButtons.forEach((btn) => {
+    const btnKey = String(btn.dataset.sidebarView || '').toLowerCase();
+    btn.classList.toggle('active', btnKey === currentSidebarView);
+  });
+}
+
+function updateStatusViewerLikeUI(status) {
+  if (!statusLikeBtn || !statusLikeCount || !statusLikeIcon) return;
+
+  const isMine = Boolean(status && status.isMine);
+  statusLikeBtn.classList.toggle('hidden', isMine);
+  statusLikeCount.classList.toggle('hidden', isMine);
+
+  const count = Number(status && status.likeCount) || 0;
+  statusLikeCount.textContent = String(count);
+
+  const liked = Boolean(status && status.likedByMe);
+  statusLikeBtn.classList.toggle('liked', liked);
+  statusLikeIcon.className = liked ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
+}
+
+function renderStatusInsights(statusId) {
+  if (!statusViewedByList || !statusLikedByList) return;
+
+  const details = statusDetailsCacheById.get(Number(statusId));
+  const viewedBy = details && Array.isArray(details.viewedBy) ? details.viewedBy : [];
+  const likedBy = details && Array.isArray(details.likedBy) ? details.likedBy : [];
+
+  statusViewedByList.innerHTML = '';
+  statusLikedByList.innerHTML = '';
+
+  if (!viewedBy.length) {
+    statusViewedByList.innerHTML = `<li class="insight-item"><span class="insight-name muted">No views yet.</span></li>`;
+  } else {
+    viewedBy.forEach((u) => statusViewedByList.appendChild(buildInsightRow(u.username)));
+  }
+
+  if (!likedBy.length) {
+    statusLikedByList.innerHTML = `<li class="insight-item"><span class="insight-name muted">No likes yet.</span></li>`;
+  } else {
+    likedBy.forEach((u) => statusLikedByList.appendChild(buildInsightRow(u.username)));
+  }
+
+  if (statusViewsCount) statusViewsCount.textContent = String(viewedBy.length);
+  if (statusLikesCount) statusLikesCount.textContent = String(likedBy.length);
+}
+
+function buildInsightRow(username) {
+  const li = document.createElement('li');
+  li.className = 'insight-item';
+
+  const name = toDisplayName(username || '');
+  const avatar = document.createElement('span');
+  avatar.className = 'insight-avatar';
+  avatar.textContent = name ? name.charAt(0).toUpperCase() : '?';
+
+  const label = document.createElement('span');
+  label.className = 'insight-name';
+  label.textContent = name || 'User';
+
+  li.appendChild(avatar);
+  li.appendChild(label);
+  return li;
+}
+
+function openStatusViewer(status, displayName) {
+  if (!statusViewerModal || !statusViewerBody || !statusViewerContent) return;
+  currentViewedStatusId = Number(status && status.id) || null;
+
+  if (statusViewerTitle) statusViewerTitle.textContent = displayName || 'Status';
+  if (statusViewerTime) statusViewerTime.textContent = formatStatusTime(status.createdAt);
+
+  statusViewerContent.innerHTML = '';
+
+  if (status.type === 'text') {
+    const box = document.createElement('div');
+    box.className = 'status-viewer-text';
+    box.textContent = status.text || '';
+    statusViewerContent.appendChild(box);
+  } else if (status.type === 'image') {
+    const img = document.createElement('img');
+    img.className = 'status-viewer-media';
+    img.alt = 'Status image';
+    img.src = status.mediaUrl || '';
+    statusViewerContent.appendChild(img);
+  } else if (status.type === 'video') {
+    const video = document.createElement('video');
+    video.className = 'status-viewer-media';
+    video.controls = true;
+    video.playsInline = true;
+    video.src = status.mediaUrl || '';
+    statusViewerContent.appendChild(video);
+  } else {
+    const box = document.createElement('div');
+    box.className = 'status-viewer-text';
+    box.textContent = 'Unsupported status.';
+    statusViewerContent.appendChild(box);
+  }
+
+  updateStatusViewerLikeUI(status);
+
+  if (statusViewerFooter) {
+    const isMine = Boolean(status && status.isMine);
+    statusViewerFooter.classList.toggle('hidden', !isMine);
+    if (!isMine && statusFooterDropdown) statusFooterDropdown.classList.add('hidden');
+
+    if (isMine && currentViewedStatusId) {
+      if (!statusDetailsCacheById.has(Number(currentViewedStatusId))) {
+        socket.emit('status:details', { statusId: Number(currentViewedStatusId) });
+      }
+      renderStatusInsights(currentViewedStatusId);
+    }
+  }
+
+  statusViewerModal.classList.remove('hidden');
+  statusViewerModal.setAttribute('aria-hidden', 'false');
+}
+
+function renderStatusStrip(thread) {
+  if (!statusViewerStrip) return;
+  const story = thread && Array.isArray(thread.story) ? thread.story : [];
+  if (story.length <= 1) {
+    statusViewerStrip.classList.add('hidden');
+    statusViewerStrip.innerHTML = '';
+    return;
+  }
+
+  statusViewerStrip.classList.remove('hidden');
+  statusViewerStrip.innerHTML = '';
+
+  story.forEach((s, index) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'status-strip-dot';
+    btn.classList.toggle('active', index === currentThreadIndex);
+    btn.classList.toggle('viewed', Boolean(s && s.viewed) && !Boolean(s && s.isMine));
+
+    if (s.type === 'text') btn.textContent = 'T';
+    else if (s.type === 'image') btn.textContent = 'P';
+    else if (s.type === 'video') btn.textContent = 'V';
+    else btn.textContent = '•';
+
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openStatusThread(thread, index);
+    });
+
+    statusViewerStrip.appendChild(btn);
+  });
+}
+
+function openStatusThread(thread, index = null) {
+  if (!thread || !Array.isArray(thread.story) || !thread.story.length) return;
+  currentThread = thread;
+
+  const story = thread.story;
+  const nextIndex =
+    typeof index === 'number' && index >= 0 && index < story.length ? index : story.length - 1;
+  currentThreadIndex = nextIndex;
+
+  const status = story[nextIndex];
+  const displayName = Number(thread.userId) === Number(myUserId) ? 'My status' : toDisplayName(thread.username || '');
+
+  // Mark this particular status as viewed when we actually open it.
+  if (status && status.id && Number(thread.userId) !== Number(myUserId) && !status.viewed) {
+    socket.emit('status:view', { statusId: status.id });
+  }
+
+  openStatusViewer(status, displayName || 'Status');
+  renderStatusStrip(thread);
+}
+
+function closeStatusViewer() {
+  if (!statusViewerModal || !statusViewerBody || !statusViewerContent) return;
+  statusViewerModal.classList.add('hidden');
+  statusViewerModal.setAttribute('aria-hidden', 'true');
+  statusViewerContent.innerHTML = '';
+  currentViewedStatusId = null;
+  currentThread = null;
+  currentThreadIndex = -1;
+  if (statusViewerStrip) {
+    statusViewerStrip.classList.add('hidden');
+    statusViewerStrip.innerHTML = '';
+  }
+  if (statusViewerFooter) statusViewerFooter.classList.add('hidden');
+  if (statusFooterDropdown) statusFooterDropdown.classList.add('hidden');
+}
+
+function formatStatusTime(epochMs) {
+  const ms = Number(epochMs);
+  if (!Number.isFinite(ms) || ms <= 0) return '';
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const now = new Date();
+  const sameDay = now.toDateString() === date.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday = yesterday.toDateString() === date.toDateString();
+  const time = new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  }).format(date);
+
+  if (sameDay) return `Today at ${time}`;
+  if (isYesterday) return `Yesterday at ${time}`;
+  return `${date.toLocaleDateString('en-IN')} ${time}`;
+}
+
+function setStatusListEmpty(listEl, text) {
+  if (!listEl) return;
+  listEl.innerHTML = `<li class="status-item"><span class="status-meta"><span class="status-time">${escapeHtml(
+    text
+  )}</span></span></li>`;
+}
+
+function renderStatuses(statuses) {
+  if (!recentStatusList || !viewedStatusList) return;
+
+  const threads = Array.isArray(statuses) ? statuses.slice() : [];
+  statusThreadsCache = threads;
+
+  // Cache every status object by id for viewer like/delete.
+  const cache = new Map();
+  threads.forEach((t) => {
+    const story = t && Array.isArray(t.story) ? t.story : [];
+    story.forEach((s) => {
+      if (s && s.id) cache.set(Number(s.id), s);
+    });
+  });
+  statusCacheById = cache;
+
+  const myThread = threads.find((t) => Number(t && t.userId) === Number(myUserId)) || null;
+  const myStory = myThread && Array.isArray(myThread.story) ? myThread.story.slice() : [];
+  const myLatest = myStory.length ? myStory[myStory.length - 1] : null;
+
+  if (myStatusSubtext) {
+    myStatusSubtext.textContent = myLatest ? formatStatusTime(myLatest.createdAt) : 'Click to add status update';
+  }
+
+  // My updates list (show every update, newest first)
+  if (myStatusList && myStatusSectionTitle) {
+    myStatusList.innerHTML = '';
+    if (myLatest) {
+      myStatusSectionTitle.classList.remove('hidden');
+      myStatusList.classList.remove('hidden');
+      myStatusList.appendChild(buildMyThreadRow(myThread));
+    } else {
+      myStatusSectionTitle.classList.add('hidden');
+      myStatusList.classList.add('hidden');
+    }
+  }
+
+  const otherThreads = threads.filter((t) => t && Number(t.userId) !== Number(myUserId));
+  const recent = otherThreads.filter((t) => !t.allViewed);
+  const viewed = otherThreads.filter((t) => t.allViewed);
+
+  recentStatusList.innerHTML = '';
+  viewedStatusList.innerHTML = '';
+
+  if (!recent.length) setStatusListEmpty(recentStatusList, 'No recent status.');
+  else {
+    recent.forEach((t) => recentStatusList.appendChild(buildThreadRow(t, false)));
+  }
+
+  if (!viewed.length) setStatusListEmpty(viewedStatusList, 'No viewed status.');
+  else {
+    viewed.forEach((t) => viewedStatusList.appendChild(buildThreadRow(t, true)));
+  }
+
+  if (statusViewerModal && !statusViewerModal.classList.contains('hidden') && currentViewedStatusId) {
+    const current = statusCacheById.get(Number(currentViewedStatusId));
+    if (current) openStatusViewer(current, current.isMine ? 'My status' : toDisplayName(current.username || ''));
+    else closeStatusViewer();
+
+    if (current) {
+      const thread = threads.find((t) =>
+        t && Array.isArray(t.story) && t.story.some((s) => Number(s && s.id) === Number(currentViewedStatusId))
+      );
+      if (thread) {
+        currentThread = thread;
+        currentThreadIndex = thread.story.findIndex((s) => Number(s && s.id) === Number(currentViewedStatusId));
+        renderStatusStrip(thread);
+      }
+    }
+  }
+}
+
+function buildMyThreadRow(thread) {
+  const story = thread && Array.isArray(thread.story) ? thread.story : [];
+  const latest = story.length ? story[story.length - 1] : null;
+  const li = document.createElement('li');
+  li.className = 'status-item';
+
+  const avatar = document.createElement('span');
+  avatar.className = 'status-avatar ring';
+  avatar.textContent = 'Me';
+
+  const meta = document.createElement('span');
+  meta.className = 'status-meta';
+
+  const count = story.length;
+  const label = count > 1 ? `My status (${count})` : 'My status';
+  meta.innerHTML = `<span class="status-name">${escapeHtml(label)}</span><span class="status-time">${escapeHtml(
+    latest ? formatStatusTime(latest.createdAt) : ''
+  )}</span>`;
+
+  li.appendChild(avatar);
+  li.appendChild(meta);
+
+  li.style.cursor = 'pointer';
+  li.addEventListener('click', () => {
+    openStatusThread(thread);
+  });
+
+  return li;
+}
+
+function buildThreadRow(thread, isViewed) {
+  const story = thread && Array.isArray(thread.story) ? thread.story : [];
+  const latest = story.length ? story[story.length - 1] : null;
+  if (!latest) {
+    const li = document.createElement('li');
+    li.className = 'status-item';
+    li.textContent = 'Status';
+    return li;
+  }
+
+  const li = document.createElement('li');
+  li.className = `status-item${isViewed ? ' viewed' : ''}`;
+
+  const username = toDisplayName(thread.username || latest.username || '');
+  const avatar = document.createElement('span');
+  avatar.className = `status-avatar ${isViewed ? 'viewed' : 'ring'}`;
+  avatar.textContent = username ? username.charAt(0).toUpperCase() : '?';
+
+  const meta = document.createElement('span');
+  meta.className = 'status-meta';
+
+  const timeLabel = escapeHtml(formatStatusTime(latest.createdAt));
+  const count = story.length;
+  const countPill = count > 1 ? `<span class="status-count-pill">${count}</span>` : '';
+
+  meta.innerHTML = `<span class="status-name">${escapeHtml(username || 'User')}</span><span class="status-time">${timeLabel}${countPill}</span>`;
+
+  li.appendChild(avatar);
+  li.appendChild(meta);
+
+  li.style.cursor = 'pointer';
+  li.addEventListener('click', () => {
+    openStatusThread(thread);
+  });
+
+  return li;
+}
+
+function updateStatusRowLikeUI(btn, iconEl, countEl, status) {
+  if (!btn || !iconEl || !countEl) return;
+  const liked = Boolean(status && status.likedByMe);
+  btn.classList.toggle('liked', liked);
+  iconEl.className = liked ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
+  countEl.textContent = String(Number(status && status.likeCount) || 0);
+}
+
+function buildStatusRow(status, isViewed, isMine) {
+  const li = document.createElement('li');
+  li.className = `status-item${isViewed ? ' viewed' : ''}`;
+
+  const username = isMine ? 'My status' : toDisplayName(status.username || '');
+  const avatar = document.createElement('span');
+  avatar.className = `status-avatar ${isViewed ? 'viewed' : 'ring'}`;
+  avatar.textContent = isMine ? 'Me' : username ? username.charAt(0).toUpperCase() : '?';
+
+  const meta = document.createElement('span');
+  meta.className = 'status-meta';
+  meta.innerHTML = `<span class="status-name">${escapeHtml(username || 'User')}</span><span class="status-time">${escapeHtml(
+    formatStatusTime(status.createdAt)
+  )}</span>`;
+
+  li.appendChild(avatar);
+  li.appendChild(meta);
+
+  li.style.cursor = 'pointer';
+  li.addEventListener('click', () => {
+    if (!isMine && status && status.id) socket.emit('status:view', { statusId: status.id });
+    openStatusViewer(status, username || 'Status');
+  });
+
+  return li;
+}
 
 let pendingFile = null;
 let pendingPreviewUrl = '';
@@ -150,7 +593,7 @@ function initProfileDropdown() {
       e.stopPropagation();
       profileDropdown.classList.add('hidden');
       profileToggle.classList.remove('active');
-      alert('Settings clicked');
+      setSidebarView('settings');
     });
   }
 
@@ -173,6 +616,261 @@ function initProfileDropdown() {
     });
   }
 }
+
+function initSidebarNav() {
+  const navButtons = document.querySelectorAll('[data-sidebar-view]');
+  navButtons.forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      setSidebarView(btn.dataset.sidebarView);
+    });
+  });
+
+  const myStatusBtn = document.getElementById('myStatusBtn');
+  const statusComposer = document.getElementById('statusComposer');
+  const statusComposerMenu = document.getElementById('statusComposerMenu');
+  const statusTextComposer = document.getElementById('statusTextComposer');
+  const statusTextInput = document.getElementById('statusTextInput');
+  const statusAddMediaBtn = document.getElementById('statusAddMediaBtn');
+  const statusAddTextBtn = document.getElementById('statusAddTextBtn');
+  const statusCancelBtn = document.getElementById('statusCancelBtn');
+  const statusSendTextBtn = document.getElementById('statusSendTextBtn');
+  const statusFileInput = document.getElementById('statusFileInput');
+
+  function closeStatusComposer() {
+    if (statusComposer) statusComposer.classList.add('hidden');
+    if (statusComposerMenu) statusComposerMenu.classList.remove('hidden');
+    if (statusTextComposer) statusTextComposer.classList.add('hidden');
+    if (statusTextInput) statusTextInput.value = '';
+    if (statusFileInput) statusFileInput.value = '';
+  }
+
+  function toggleStatusComposer() {
+    if (!statusComposer) return;
+    statusComposer.classList.toggle('hidden');
+    if (statusComposer.classList.contains('hidden')) closeStatusComposer();
+  }
+
+  if (myStatusBtn) {
+    myStatusBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      toggleStatusComposer();
+    });
+  }
+
+  document.addEventListener('click', (e) => {
+    if (!statusComposer) return;
+    const clickedInside = e.target.closest('#statusComposer') || e.target.closest('#myStatusBtn');
+    if (!clickedInside) closeStatusComposer();
+  });
+
+  if (statusAddTextBtn && statusTextComposer && statusTextInput) {
+    statusAddTextBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (statusComposerMenu) statusComposerMenu.classList.add('hidden');
+      statusTextComposer.classList.remove('hidden');
+      statusTextInput.focus();
+    });
+  }
+
+  if (statusCancelBtn) {
+    statusCancelBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      closeStatusComposer();
+    });
+  }
+
+  if (statusSendTextBtn && statusTextInput) {
+    statusSendTextBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const text = String(statusTextInput.value || '').trim();
+      if (!text) return;
+      socket.emit('status:create', { type: 'text', text });
+      closeStatusComposer();
+    });
+  }
+
+  function openStatusFilePicker(accept) {
+    if (!statusFileInput) return;
+    statusFileInput.accept = accept;
+    statusFileInput.click();
+  }
+
+  if (statusAddMediaBtn) {
+    statusAddMediaBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      openStatusFilePicker('image/*,video/*');
+    });
+  }
+
+  if (statusFileInput) {
+    statusFileInput.addEventListener('change', async () => {
+      const file = statusFileInput.files && statusFileInput.files[0];
+      if (!file) return;
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        setStatus('Status: Max file size is 10MB.');
+        statusFileInput.value = '';
+        return;
+      }
+
+      try {
+        const uploaded = await uploadFileWithProgress(file, () => {});
+        const mime = String(uploaded.fileMime || file.type || '').toLowerCase();
+        const isVideo = mime.startsWith('video/');
+        socket.emit('status:create', {
+          type: isVideo ? 'video' : 'image',
+          mediaUrl: uploaded.fileUrl
+        });
+        closeStatusComposer();
+      } catch (error) {
+        setStatus(`Status: ${error.message || 'Status upload failed.'}`);
+      }
+    });
+  }
+
+  const settingsCreateGroupBtn = document.getElementById('settingsCreateGroupBtn');
+  if (settingsCreateGroupBtn) {
+    settingsCreateGroupBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      openCreateGroupModal();
+    });
+  }
+
+  const settingsLogoutBtn = document.getElementById('settingsLogoutBtn');
+  const logoutForm = document.getElementById('logoutForm');
+  if (settingsLogoutBtn && logoutForm) {
+    settingsLogoutBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      logoutForm.submit();
+    });
+  }
+
+  setSidebarView('messages');
+}
+
+if (statusViewerCloseBtn) {
+  statusViewerCloseBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    closeStatusViewer();
+  });
+}
+
+if (statusViewerModal) {
+  statusViewerModal.addEventListener('click', (e) => {
+    if (e.target === statusViewerModal) closeStatusViewer();
+  });
+}
+
+if (statusLikeBtn) {
+  statusLikeBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const statusId = Number(currentViewedStatusId);
+    if (!statusId) return;
+
+    const current = statusCacheById.get(statusId);
+    if (!current || current.isMine) return;
+
+    const currentlyLiked = Boolean(current.likedByMe);
+    const nextLiked = !currentlyLiked;
+    const nextCount = Math.max(0, (Number(current.likeCount) || 0) + (nextLiked ? 1 : -1));
+
+    const updated = { ...current, likedByMe: nextLiked, likeCount: nextCount };
+    statusCacheById.set(statusId, updated);
+    updateStatusViewerLikeUI(updated);
+
+    socket.emit('status:like', { statusId });
+  });
+}
+
+function setFooterTab(tabKey) {
+  const key = String(tabKey || '').toLowerCase();
+  if (!statusTabViewed || !statusTabLiked || !statusViewedByList || !statusLikedByList) return;
+
+  const isViewed = key !== 'liked';
+  statusTabViewed.classList.toggle('active', isViewed);
+  statusTabLiked.classList.toggle('active', !isViewed);
+  statusViewedByList.classList.toggle('hidden', !isViewed);
+  statusLikedByList.classList.toggle('hidden', isViewed);
+}
+
+function toggleFooterDropdown(showTab) {
+  if (!statusFooterDropdown) return;
+  const willOpen = statusFooterDropdown.classList.contains('hidden');
+  if (willOpen) {
+    statusFooterDropdown.classList.remove('hidden');
+    setFooterTab(showTab);
+    if (currentViewedStatusId && !statusDetailsCacheById.has(Number(currentViewedStatusId))) {
+      socket.emit('status:details', { statusId: Number(currentViewedStatusId) });
+    }
+    if (currentViewedStatusId) renderStatusInsights(currentViewedStatusId);
+  } else {
+    statusFooterDropdown.classList.add('hidden');
+  }
+}
+
+if (statusViewsBtn) {
+  statusViewsBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleFooterDropdown('viewed');
+  });
+}
+
+if (statusLikesBtn) {
+  statusLikesBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleFooterDropdown('liked');
+  });
+}
+
+if (statusDeleteBtn) {
+  statusDeleteBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const statusId = Number(currentViewedStatusId);
+    if (!statusId) return;
+
+    const current = statusCacheById.get(statusId);
+    if (!current || !current.isMine) return;
+
+    const ok = confirm('Delete this status?');
+    if (!ok) return;
+
+    socket.emit('status:delete', { statusId });
+  });
+}
+
+if (statusTabViewed) {
+  statusTabViewed.addEventListener('click', (e) => {
+    e.preventDefault();
+    setFooterTab('viewed');
+  });
+}
+
+if (statusTabLiked) {
+  statusTabLiked.addEventListener('click', (e) => {
+    e.preventDefault();
+    setFooterTab('liked');
+  });
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeStatusViewer();
+});
+
+document.addEventListener('click', (e) => {
+  if (!statusFooterDropdown) return;
+  const clickedInside =
+    e.target.closest('#statusFooterDropdown') ||
+    e.target.closest('#statusViewsBtn') ||
+    e.target.closest('#statusLikesBtn');
+  if (!clickedInside) statusFooterDropdown.classList.add('hidden');
+});
+
 function openCreateGroupModal() {
   groupMembersList.innerHTML = '';
   cachedUsers.forEach(user => {
@@ -623,6 +1321,7 @@ messageInput.addEventListener('input', () => {
 
 
 initEmojiPicker();
+initSidebarNav();
 initProfileDropdown();
 
 if (locationToggle) {
@@ -778,6 +1477,29 @@ socket.on('connect', () => {
 
 socket.on('session:ready', ({ username }) => {
   setStatus(`Status: Connected as ${username}`);
+});
+
+socket.on('status:list', ({ statuses }) => {
+  renderStatuses(statuses);
+});
+
+socket.on('status:details', ({ statusId, viewedBy, likedBy }) => {
+  const id = Number(statusId);
+  if (!id) return;
+  statusDetailsCacheById.set(id, {
+    viewedBy: Array.isArray(viewedBy) ? viewedBy : [],
+    likedBy: Array.isArray(likedBy) ? likedBy : []
+  });
+  if (currentViewedStatusId && Number(currentViewedStatusId) === id) {
+    renderStatusInsights(id);
+  }
+});
+
+socket.on('status:deleted', ({ statusId }) => {
+  const id = Number(statusId);
+  if (!id) return;
+  statusDetailsCacheById.delete(id);
+  if (currentViewedStatusId && Number(currentViewedStatusId) === id) closeStatusViewer();
 });
 
 socket.on('chat:typing', ({ from, isTyping }) => {
