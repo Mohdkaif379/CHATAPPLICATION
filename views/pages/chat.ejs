@@ -69,7 +69,10 @@
       <div class="chat-head">
         <div class="chat-head-left" id="chatHeaderInfo">
           <div id="selectedUserAvatar" class="selected-user-avatar"></div>
-          <h4 id="chatTitle"></h4>
+          <div class="chat-head-title-wrap">
+            <h4 id="chatTitle"></h4>
+            <p id="selectedUserText"></p>
+          </div>
         </div>
         <div class="chat-head-right">
           <button type="button" class="call-icon-btn" title="Voice call"><i class="fa-solid fa-phone"></i></button>
@@ -232,7 +235,7 @@
     </div>
   </div>
 
-  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
   <script>
     window.APP_USER = {

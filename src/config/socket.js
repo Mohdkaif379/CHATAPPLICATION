@@ -120,6 +120,7 @@ function configureSocket(server, sessionMiddleware) {
     emitUsersUpdate(io, socket).catch(() => {
       socket.emit('chat:error', { message: 'Could not load users list.' });
     });
+    emitUsersUpdate(io).catch(() => {});
 
     socket.on('chat:history', async ({ withUser }) => {
       try {

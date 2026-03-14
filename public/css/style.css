@@ -407,6 +407,13 @@ button:hover {
   gap: 12px;
 }
 
+.chat-head-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
 #chatHeaderInfo.interactive {
   cursor: pointer;
   transition: opacity 0.2s;
@@ -460,6 +467,12 @@ button:hover {
 #selectedUserText {
   color: var(--muted);
   font-size: 13px;
+  margin: 0;
+  text-transform: capitalize;
+}
+
+#selectedUserText:empty {
+  display: none;
 }
 
 #messages {

@@ -6,6 +6,7 @@ const usersList = document.getElementById('usersList');
 const usersSearch = document.getElementById('usersSearch');
 const messages = document.getElementById('messages');
 const chatTitle = document.getElementById('chatTitle');
+const selectedUserText = document.getElementById('selectedUserText');
 const selectedUserAvatar = document.getElementById('selectedUserAvatar');
 const messageInput = document.getElementById('message');
 const fileInput = document.getElementById('fileInput');
@@ -467,6 +468,26 @@ function toDisplayName(name) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+function updateSelectedUserStatusText() {
+  if (!selectedUserText) return;
+
+  if (selectedGroup || !selectedUser) {
+    selectedUserText.textContent = '';
+    return;
+  }
+
+  const match = cachedUsers.find(
+    (user) => String(user.username || '').toLowerCase() === String(selectedUser || '').toLowerCase()
+  );
+
+  if (!match) {
+    selectedUserText.textContent = '';
+    return;
+  }
+
+  selectedUserText.textContent = match.online ? 'online' : 'offline';
+}
+
 function setSelectedChatDisplay(name, isGroup = false, avatarUrl = '') {
   const displayName = name ? toDisplayName(name) : '';
   if (chatTitle) chatTitle.textContent = displayName || 'Select a chat';
@@ -514,11 +535,13 @@ function setSelectedChatDisplay(name, isGroup = false, avatarUrl = '') {
 
   if (!name) {
     selectedUserAvatar.innerHTML = '?';
+    updateSelectedUserStatusText();
     return;
   }
 
   if (isGroup) {
     selectedUserAvatar.innerHTML = `<div class="group-icon"><i class="fa-solid fa-user-group"></i></div>`;
+    updateSelectedUserStatusText();
     return;
   }
 
@@ -526,10 +549,12 @@ function setSelectedChatDisplay(name, isGroup = false, avatarUrl = '') {
     selectedUserAvatar.innerHTML = `<img src="${escapeHtml(selectedUserAvatarUrl)}" alt="${escapeHtml(
       name
     )}" />`;
+    updateSelectedUserStatusText();
     return;
   }
 
   selectedUserAvatar.textContent = name.charAt(0).toUpperCase();
+  updateSelectedUserStatusText();
 }
 
 messageForm.addEventListener('submit', (e) => {
@@ -756,11 +781,13 @@ function updateTypingStatusUI(from, isTyping, isGroup = false) {
         const title = document.getElementById('chatTitle');
         if (!title) return;
 
-        // Wrap title and status in a div for vertical layout
-        const wrapper = document.createElement('div');
-        wrapper.className = 'chat-head-title-wrap';
-        title.parentNode.insertBefore(wrapper, title);
-        wrapper.appendChild(title);
+        const wrapper = title.closest('.chat-head-title-wrap') || (() => {
+            const created = document.createElement('div');
+            created.className = 'chat-head-title-wrap';
+            title.parentNode.insertBefore(created, title);
+            created.appendChild(title);
+            return created;
+        })();
 
         statusEl = document.createElement('p');
         statusEl.id = 'typing-indicator-text';
@@ -814,6 +841,7 @@ function renderUsers(users) {
       Array.from(usersList.children).forEach((item) => item.classList.remove('active'));
       if (groupsList) Array.from(groupsList.children).forEach((item) => item.classList.remove('active'));
       li.classList.add('active');
+      updateSelectedUserStatusText();
       socket.emit('chat:history', { withUser: selectedUser });
       socket.emit('chat:seen', { withUser: selectedUser });
     });
@@ -841,6 +869,7 @@ function renderGroups(groups) {
       Array.from(usersList.children).forEach((item) => item.classList.remove('active'));
       Array.from(groupsList.children).forEach((item) => item.classList.remove('active'));
       li.classList.add('active');
+      updateSelectedUserStatusText();
       socket.emit('group:history', { groupId: group.id });
     });
     groupsList.appendChild(li);
@@ -851,6 +880,7 @@ function renderGroups(groups) {
 socket.on('users:update', ({ users, groups }) => {
   cachedUsers = Array.isArray(users) ? users : [];
   renderUsers(cachedUsers);
+  updateSelectedUserStatusText();
   if (groups) {
       cachedGroups = Array.isArray(groups) ? groups : [];
       renderGroups(cachedGroups);
