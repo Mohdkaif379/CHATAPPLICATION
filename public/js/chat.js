@@ -823,8 +823,7 @@ function renderUsers(users) {
 
     const li = document.createElement('li');
     const label = user.username;
-    const lastActiveLabel = formatLastActiveAt(user.lastActiveAt);
-    const statusLabel = user.online ? 'online' : lastActiveLabel ? `offline • last active ${lastActiveLabel}` : 'offline';
+    const statusLabel = user.online ? 'online' : 'offline';
     li.innerHTML = `<span class="user-name">${escapeHtml(label)}</span><span class="user-status">${statusLabel}</span>`;
     li.classList.add(user.online ? 'user-online' : 'user-offline');
 
