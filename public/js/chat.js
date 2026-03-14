@@ -763,8 +763,6 @@ socket.on('session:ready', ({ username }) => {
   setStatus(`Status: Connected as ${username}`);
 });
 
-const typingIndicators = new Map(); // key -> username/groupId
-
 socket.on('chat:typing', ({ from, isTyping }) => {
     if (from !== selectedUser) return;
     updateTypingStatusUI(from, isTyping);
@@ -776,36 +774,15 @@ socket.on('group:typing', ({ groupId, from, isTyping }) => {
 });
 
 function updateTypingStatusUI(from, isTyping, isGroup = false) {
-    let statusEl = document.getElementById('typing-indicator-text');
-    if (!statusEl) {
-        const title = document.getElementById('chatTitle');
-        if (!title) return;
-
-        const wrapper = title.closest('.chat-head-title-wrap') || (() => {
-            const created = document.createElement('div');
-            created.className = 'chat-head-title-wrap';
-            title.parentNode.insertBefore(created, title);
-            created.appendChild(title);
-            return created;
-        })();
-
-        statusEl = document.createElement('p');
-        statusEl.id = 'typing-indicator-text';
-        statusEl.className = 'typing-status';
-        wrapper.appendChild(statusEl);
-    }
+    if (!selectedUserText) return;
 
     if (isTyping) {
-        statusEl.textContent = isGroup ? `${toDisplayName(from)} is typing...` : 'typing...';
-        statusEl.classList.add('visible');
-    } else {
-        statusEl.classList.remove('visible');
-        setTimeout(() => {
-            if (!statusEl.classList.contains('visible')) {
-                statusEl.textContent = '';
-            }
-        }, 300);
+        selectedUserText.textContent = isGroup ? `${toDisplayName(from)} typing...` : 'typing...';
+        return;
     }
+
+    // Typing stopped -> show normal "online/offline" again (or blank for groups)
+    updateSelectedUserStatusText();
 }
 
 function renderUsers(users) {
