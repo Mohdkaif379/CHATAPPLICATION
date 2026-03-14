@@ -501,7 +501,7 @@ function updateSelectedUserStatusText() {
   }
 
   const lastActiveLabel = formatLastActiveAt(match.lastActiveAt);
-  selectedUserText.textContent = lastActiveLabel ? `last active ${lastActiveLabel}` : 'offline';
+  selectedUserText.textContent = lastActiveLabel ? `offline • last active ${lastActiveLabel}` : 'offline';
 }
 
 function setSelectedChatDisplay(name, isGroup = false, avatarUrl = '') {
@@ -823,7 +823,8 @@ function renderUsers(users) {
 
     const li = document.createElement('li');
     const label = user.username;
-    const statusLabel = user.online ? 'online' : 'offline';
+    const lastActiveLabel = formatLastActiveAt(user.lastActiveAt);
+    const statusLabel = user.online ? 'online' : lastActiveLabel ? `offline • last active ${lastActiveLabel}` : 'offline';
     li.innerHTML = `<span class="user-name">${escapeHtml(label)}</span><span class="user-status">${statusLabel}</span>`;
     li.classList.add(user.online ? 'user-online' : 'user-offline');
 
