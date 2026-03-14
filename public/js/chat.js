@@ -67,6 +67,7 @@ let selectedUserAvatarUrl = '';
 let pendingDelete = null;
 let cachedUsers = [];
 let cachedGroups = [];
+let selectedChatTyping = { isTyping: false, isGroup: false };
 
 let pendingFile = null;
 let pendingPreviewUrl = '';
@@ -468,8 +469,17 @@ function toDisplayName(name) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+function formatLastActiveAt(epochMs) {
+  const ms = Number(epochMs);
+  if (!Number.isFinite(ms) || ms <= 0) return '';
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) return '';
+  return istTimeFormatter.format(date);
+}
+
 function updateSelectedUserStatusText() {
   if (!selectedUserText) return;
+  if (selectedChatTyping && selectedChatTyping.isTyping) return;
 
   if (selectedGroup || !selectedUser) {
     selectedUserText.textContent = '';
@@ -485,13 +495,20 @@ function updateSelectedUserStatusText() {
     return;
   }
 
-  selectedUserText.textContent = match.online ? 'online' : 'offline';
+  if (match.online) {
+    selectedUserText.textContent = 'online';
+    return;
+  }
+
+  const lastActiveLabel = formatLastActiveAt(match.lastActiveAt);
+  selectedUserText.textContent = lastActiveLabel ? `last active ${lastActiveLabel}` : 'offline';
 }
 
 function setSelectedChatDisplay(name, isGroup = false, avatarUrl = '') {
   const displayName = name ? toDisplayName(name) : '';
   if (chatTitle) chatTitle.textContent = displayName || 'Select a chat';
   selectedUserAvatarUrl = avatarUrl || '';
+  selectedChatTyping = { isTyping: false, isGroup };
 
   if (chatHeaderInfo) {
     if (isGroup) chatHeaderInfo.classList.add('interactive');
@@ -775,6 +792,10 @@ socket.on('group:typing', ({ groupId, from, isTyping }) => {
 
 function updateTypingStatusUI(from, isTyping, isGroup = false) {
     if (!selectedUserText) return;
+    if (selectedChatTyping) {
+      selectedChatTyping.isTyping = Boolean(isTyping);
+      selectedChatTyping.isGroup = Boolean(isGroup);
+    }
 
     if (isTyping) {
         selectedUserText.textContent = isGroup ? `${toDisplayName(from)} typing...` : 'typing...';

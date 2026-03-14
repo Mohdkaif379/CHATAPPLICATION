@@ -22,7 +22,8 @@ async function emitUsersUpdate(io, socket = null) {
   const users = allUsers.map((user) => ({
     id: user.id,
     username: user.username,
-    online: onlineUsers.some(ou => ou.id === user.id)
+    online: onlineUsers.some((ou) => ou.id === user.id),
+    lastActiveAt: userService.getLastActiveAt(user.id)
   }));
 
   if (socket) {
